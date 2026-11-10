@@ -28,8 +28,6 @@ Capri running a web search: the data-fragment ring, the activity HUD and the inl
 
 ![Capri running a web search](docs/screenshots/searching.png)
 
-*The character images shown in these screenshots were generated with ChatGPT Images.*
-
 ## Unofficial fan project disclaimer
 
 Capri is a character from *Cyberpunk: Edgerunners*. This is a non-commercial, unofficial fan
@@ -384,11 +382,8 @@ is discovered automatically and appears in the settings window.
 
 ## AI
 
-This software, including its source code, comments, and documentation, has been generated in
-its entirety by Claude, an artificial intelligence model developed by Anthropic, through a
-development methodology commonly referred to as "vibe coding". Under this methodology, the
-human participant's role was limited to describing the desired functionality in natural
-language, reviewing the results, and supplying artistic assets. No portion of the source code
-was written manually by a human. Consequently, the software is provided "as is", without
-warranty of any kind, and users are advised to review the code before executing it,
-particularly the components that interact with the file system or execute scripts.
+This software, including its source code and documentation, was generated entirely by
+Claude Fable 5.2 and Claude Opus 5.5, artificial intelligence models developed by Anthropic,
+through the methodology known as "vibe coding". The character images were generated with
+ChatGPT Images by OpenAI. The software is provided "as is", without warranty of any kind,
+and users are advised to review the code before executing it.
