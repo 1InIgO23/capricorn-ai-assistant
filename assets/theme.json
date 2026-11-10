@@ -1,0 +1,106 @@
+{
+  "name": "Capri Construct",
+  "colors": {
+    "background": "#08080D",
+    "surface": "#0F1020",
+    "surface_alt": "#1E2036",
+    "border": "#A23BF2",
+    "accent": "#FF1450",
+    "accent_soft": "#FF8DB4",
+    "secondary": "#12F56C",
+    "tertiary": "#2A6BFF",
+    "text": "#F5F2F8",
+    "text_dim": "#8E98A8",
+    "success": "#12F56C",
+    "warning": "#FFC61A",
+    "alert": "#FF8A1F",
+    "error": "#FF3030",
+    "glass_alpha": 0.88
+  },
+  "state_colors": {
+    "idle": "#FF1450",
+    "blink": "#FF1450",
+    "happy": "#FF8DB4",
+    "talking": "#12F56C",
+    "thinking": "#A23BF2",
+    "searching": "#2A6BFF",
+    "files": "#12F56C",
+    "coding": "#FFC61A",
+    "alert": "#FF8A1F",
+    "error": "#FF3030",
+    "sleeping": "#6A3FA8",
+    "standby": "#4B2E7A",
+    "peek": "#FF1450"
+  },
+  "mood_tints": {
+    "bored": "#6A3FA8",
+    "content": "#FF1450",
+    "excited": "#FF8DB4",
+    "tired": "#2A3F7A"
+  },
+  "fonts": {
+    "ui": [
+      "Segoe UI",
+      "Arial"
+    ],
+    "display": [
+      "Bahnschrift",
+      "Segoe UI",
+      "Arial"
+    ],
+    "mono": [
+      "Cascadia Mono",
+      "Consolas",
+      "Courier New"
+    ],
+    "ui_size": 10,
+    "mono_size": 10,
+    "hud_size": 9
+  },
+  "effects": {
+    "intensity": {
+      "off": 0.0,
+      "subtle": 0.45,
+      "full": 1.0
+    },
+    "bob_amplitude": 6.0,
+    "bob_period": 3.4,
+    "breath_scale": 0.02,
+    "breath_period": 4.6,
+    "glitch_interval": [
+      4.0,
+      11.0
+    ],
+    "glitch_duration": 0.18,
+    "glitch_max_offset": 18,
+    "glitch_slices": [
+      2,
+      4
+    ],
+    "rgb_split": 2.0,
+    "scanline_spacing": 3,
+    "scanline_alpha": 0.16,
+    "glow_radius": 12,
+    "glow_alpha": 0.8,
+    "rerender_ms": 380,
+    "tilt_degrees": 6.0,
+    "awareness_radius": 280,
+    "pulse_period": 1.1,
+    "night_dim": 0.8,
+    "quiet_opacity": 0.6,
+    "panel_scanline_alpha": 0.05,
+    "panel_radius": 10,
+    "decrypt_chars_per_second": 60
+  },
+  "syntax": {
+    "text": "#F5F2F8",
+    "keyword": "#FF1450",
+    "string": "#12F56C",
+    "number": "#FFC61A",
+    "comment": "#6F7A8C",
+    "function": "#5C93FF",
+    "class": "#FF8DB4",
+    "operator": "#C77DFF",
+    "builtin": "#C77DFF"
+  }
+}

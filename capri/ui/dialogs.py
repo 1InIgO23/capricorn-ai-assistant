@@ -1,0 +1,306 @@
+"""Confirmation dialog and settings window."""
+from __future__ import annotations
+
+from typing import Any
+
+from PySide6.QtCore import QPoint, QRectF, Qt, QTimer, Signal
+from PySide6.QtGui import QPainter
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QFileDialog, QFormLayout,
+                               QHBoxLayout, QLabel, QLineEdit, QPushButton, QSpinBox,
+                               QStackedWidget, QTabWidget, QTextBrowser, QVBoxLayout, QWidget)
+
+from ..config.settings import EFFECT_LEVELS, Settings
+from ..config.theme import Theme
+from ..llm.base import available_backends
+from ..tools.base import ConfirmRequest
+from .markdown import highlight_code
+from .style import blend, css_fonts, paint_glass, pulse, qcolor
+
+SCRIPT_NOTE = ("Local models are fine for simple scripts. For complex scripts a cloud model "
+               "(Settings → Brain) is recommended. Always read a script before allowing it.")
+
+
+class ConfirmDialog(QDialog):
+    """Frameless always-on-top dialog whose border pulses with Capri's alert glow."""
+
+    decided = Signal(bool)
+
+    def __init__(self, request: ConfirmRequest, theme: Theme, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.request = request
+        self._theme = theme
+        self._drag: QPoint | None = None
+        self._done = False
+        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setWindowTitle("Capri needs your OK")
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 16, 20, 16)
+        layout.setSpacing(10)
+        tag = QLabel("CAPRI REQUESTS PERMISSION")
+        tag.setStyleSheet(
+            f"color: {theme.color('alert')}; font-family: {css_fonts(theme, 'display')}; "
+            "font-weight: bold; letter-spacing: 2px;")
+        title = QLabel(request.title)
+        title.setObjectName("title")
+        summary = QLabel(request.summary)
+        summary.setWordWrap(True)
+        layout.addWidget(tag)
+        layout.addWidget(title)
+        layout.addWidget(summary)
+
+        if request.details:
+            details = QLabel("\n".join(request.details))
+            details.setWordWrap(True)
+            details.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            details.setStyleSheet(
+                f"font-family: {css_fonts(theme, 'mono')}; background: {theme.color('background')};"
+                f" border: 1px solid {theme.color('surface_alt')}; border-radius: 4px; "
+                "padding: 8px;")
+            layout.addWidget(details)
+
+        if request.code is not None:
+            caption = QLabel("FULL SCRIPT" if request.kind == "script" else "CONTENT TO WRITE")
+            caption.setObjectName("dim")
+            layout.addWidget(caption)
+            view = QTextBrowser()
+            view.setLineWrapMode(QTextBrowser.NoWrap)
+            view.setHtml(highlight_code(request.code, request.code_language, theme))
+            view.setMinimumHeight(180)
+            view.setMaximumHeight(380)
+            layout.addWidget(view, 1)
+        if request.kind == "script":
+            note = QLabel(SCRIPT_NOTE)
+            note.setObjectName("hint")
+            note.setWordWrap(True)
+            layout.addWidget(note)
+
+        buttons = QHBoxLayout()
+        buttons.addStretch(1)
+        deny = QPushButton("Deny")
+        deny.setDefault(True)
+        deny.setAutoDefault(True)
+        deny.clicked.connect(lambda: self._finish(False))
+        allow = QPushButton("Allow")
+        allow.setObjectName("primary")
+        allow.setAutoDefault(False)
+        allow.clicked.connect(lambda: self._finish(True))
+        buttons.addWidget(deny)
+        buttons.addWidget(allow)
+        layout.addLayout(buttons)
+        self.setMinimumWidth(480)
+        self.setMaximumWidth(760)
+
+        self._pulse_timer = QTimer(self)
+        self._pulse_timer.setInterval(40)
+        self._pulse_timer.timeout.connect(self.update)
+        self._pulse_timer.start()
+
+    def _finish(self, approved: bool) -> None:
+        if self._done:
+            return
+        self._done = True
+        self._pulse_timer.stop()
+        self.request.approved = approved
+        self.request.event.set()
+        self.decided.emit(approved)
+        self.hide()
+        self.deleteLater()
+
+    def cancel(self) -> None:
+        """Close as denied (used when the run is stopped)."""
+        self._finish(False)
+
+    def reject(self) -> None:  # Esc key
+        self._finish(False)
+
+    def closeEvent(self, event) -> None:  # noqa: N802
+        self._finish(False)
+        event.accept()
+
+    def paintEvent(self, _event) -> None:  # noqa: N802
+        painter = QPainter(self)
+        alert = qcolor(self._theme.color("alert"))
+        border = blend(qcolor(self._theme.color("surface_alt")), alert, 0.35 + 0.65 * pulse(self._theme))
+        paint_glass(painter, QRectF(self.rect()), self._theme, alpha=0.97, border=border)
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802
+        if event.button() == Qt.LeftButton:
+            self._drag = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+
+    def mouseMoveEvent(self, event) -> None:  # noqa: N802
+        if self._drag is not None and event.buttons() & Qt.LeftButton:
+            self.move(event.globalPosition().toPoint() - self._drag)
+
+    def mouseReleaseEvent(self, _event) -> None:  # noqa: N802
+        self._drag = None
+
+
+class SettingsDialog(QDialog):
+    """The settings window."""
+
+    def __init__(self, settings: Settings, theme: Theme, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._settings = settings
+        self._theme = theme
+        self._backend_fields: dict[str, dict[str, QLineEdit]] = {}
+        self.setWindowTitle("Capri — Settings")
+        self.setWindowFlag(Qt.WindowStaysOnTopHint, True)
+        self.setMinimumWidth(520)
+        layout = QVBoxLayout(self)
+        tabs = QTabWidget()
+        tabs.addTab(self._brain_tab(), "Brain")
+        tabs.addTab(self._body_tab(), "Body")
+        tabs.addTab(self._tools_tab(), "Tools")
+        layout.addWidget(tabs)
+        buttons = QHBoxLayout()
+        buttons.addStretch(1)
+        cancel = QPushButton("Cancel")
+        cancel.clicked.connect(self.reject)
+        save = QPushButton("Save")
+        save.setObjectName("primary")
+        save.setDefault(True)
+        save.clicked.connect(self._save)
+        buttons.addWidget(cancel)
+        buttons.addWidget(save)
+        layout.addLayout(buttons)
+
+    # ---------------------------------------------------------------- tabs
+    def _brain_tab(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        form = QFormLayout()
+        self._backend = QComboBox()
+        self._stack = QStackedWidget()
+        backends = available_backends()
+        for key, cls in backends.items():
+            self._backend.addItem(cls.label, key)
+            stored = self._settings.backend_config(key)
+            sub = QWidget()
+            sub_form = QFormLayout(sub)
+            sub_form.setContentsMargins(0, 8, 0, 0)
+            info = QLabel(cls.help_text)
+            info.setWordWrap(True)
+            info.setObjectName("dim")
+            sub_form.addRow(info)
+            fields: dict[str, QLineEdit] = {}
+            fields["base_url"] = QLineEdit(stored.get("base_url") or cls.default_base_url)
+            fields["model"] = QLineEdit(stored.get("model") or cls.default_model)
+            sub_form.addRow("Base URL", fields["base_url"])
+            sub_form.addRow("Model name", fields["model"])
+            if cls.needs_api_key:
+                key_edit = QLineEdit(stored.get("api_key", ""))
+                key_edit.setEchoMode(QLineEdit.Password)
+                key_edit.setPlaceholderText("paste your API key")
+                show = QCheckBox("Show")
+                show.toggled.connect(
+                    lambda on, e=key_edit: e.setEchoMode(QLineEdit.Normal if on else QLineEdit.Password))
+                row = QHBoxLayout()
+                row.addWidget(key_edit, 1)
+                row.addWidget(show)
+                sub_form.addRow("API key", row)
+                fields["api_key"] = key_edit
+            self._backend_fields[key] = fields
+            self._stack.addWidget(sub)
+        index = max(0, self._backend.findData(self._settings.get("backend", "ollama")))
+        self._backend.setCurrentIndex(index)
+        self._stack.setCurrentIndex(index)
+        self._backend.currentIndexChanged.connect(self._stack.setCurrentIndex)
+        form.addRow("Backend", self._backend)
+        layout.addLayout(form)
+        layout.addWidget(self._stack)
+        hint = QLabel("Local models (Ollama) are fine for chatting, searching, file chores and "
+                      "simple scripts. For complex coding tasks a cloud model is recommended.")
+        hint.setObjectName("hint")
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+        keys = QLabel("API keys are stored only in your settings file under %APPDATA%\\Capri "
+                      "and are never written to the logs.")
+        keys.setObjectName("dim")
+        keys.setWordWrap(True)
+        layout.addWidget(keys)
+        layout.addStretch(1)
+        return page
+
+    def _spin(self, key: str, low: int, high: int, suffix: str = "", step: int = 1) -> QSpinBox:
+        box = QSpinBox()
+        box.setRange(low, high)
+        box.setSingleStep(step)
+        box.setSuffix(suffix)
+        try:
+            box.setValue(int(self._settings.get(key, low)))
+        except (TypeError, ValueError):
+            box.setValue(low)
+        return box
+
+    def _body_tab(self) -> QWidget:
+        page = QWidget()
+        form = QFormLayout(page)
+        self._size = self._spin("character_size", 120, 420, " px", 10)
+        self._effects = QComboBox()
+        for level in EFFECT_LEVELS:
+            self._effects.addItem(level, level)
+        self._effects.setCurrentIndex(EFFECT_LEVELS.index(self._settings.effects_level()))
+        self._on_top = QCheckBox("Keep Capri above other windows")
+        self._on_top.setChecked(bool(self._settings.get("always_on_top", True)))
+        self._sleep = self._spin("sleep_minutes", 1, 240, " min")
+        self._standby = self._spin("standby_minutes", 2, 600, " min")
+        self._remarks = QCheckBox("Allow rare spontaneous remarks")
+        self._remarks.setChecked(bool(self._settings.get("remarks_enabled", True)))
+        self._remark_gap = self._spin("remarks_interval_minutes", 5, 240, " min")
+        self._auto_quiet = QCheckBox("Quiet mode while a fullscreen app or game is in front")
+        self._auto_quiet.setChecked(bool(self._settings.get("auto_quiet_fullscreen", True)))
+        form.addRow("Character size", self._size)
+        form.addRow("Effects intensity", self._effects)
+        form.addRow("", self._on_top)
+        form.addRow("Fall asleep after", self._sleep)
+        form.addRow("Standby after", self._standby)
+        form.addRow("", self._remarks)
+        form.addRow("At most one remark every", self._remark_gap)
+        form.addRow("", self._auto_quiet)
+        return page
+
+    def _tools_tab(self) -> QWidget:
+        page = QWidget()
+        form = QFormLayout(page)
+        self._workspace = QLineEdit(str(self._settings.workspace))
+        browse = QPushButton("Browse…")
+        browse.clicked.connect(self._browse)
+        row = QHBoxLayout()
+        row.addWidget(self._workspace, 1)
+        row.addWidget(browse)
+        self._timeout = self._spin("script_timeout", 5, 3600, " s", 5)
+        form.addRow("Script workspace", row)
+        form.addRow("Script timeout", self._timeout)
+        note = QLabel("Scripts are saved in the workspace and only run after you have seen "
+                      "the full script and clicked Allow. " + SCRIPT_NOTE)
+        note.setObjectName("dim")
+        note.setWordWrap(True)
+        form.addRow(note)
+        return page
+
+    def _browse(self) -> None:
+        folder = QFileDialog.getExistingDirectory(self, "Choose the script workspace",
+                                                  self._workspace.text())
+        if folder:
+            self._workspace.setText(folder)
+
+    def _save(self) -> None:
+        s = self._settings
+        s.set("backend", self._backend.currentData())
+        for key, fields in self._backend_fields.items():
+            cfg: dict[str, Any] = {name: edit.text().strip() for name, edit in fields.items()}
+            s.set(f"backends.{key}", cfg)
+        s.set("character_size", self._size.value())
+        s.set("effects_intensity", self._effects.currentData())
+        s.set("always_on_top", self._on_top.isChecked())
+        s.set("sleep_minutes", self._sleep.value())
+        s.set("standby_minutes", max(self._standby.value(), self._sleep.value() + 1))
+        s.set("remarks_enabled", self._remarks.isChecked())
+        s.set("remarks_interval_minutes", self._remark_gap.value())
+        s.set("auto_quiet_fullscreen", self._auto_quiet.isChecked())
+        s.set("workspace", self._workspace.text().strip())
+        s.set("script_timeout", self._timeout.value())
+        s.save()
+        self.accept()

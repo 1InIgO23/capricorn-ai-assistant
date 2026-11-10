@@ -1,0 +1,11 @@
+# Capri - runtime dependencies (Python 3.11+)
+PySide6>=6.6
+requests>=2.31
+ddgs>=9.0
+beautifulsoup4>=4.12
+send2trash>=1.8
+Pygments>=2.17
+pypdf>=4.0
+
+# Tests
+pytest>=8.0

@@ -1,0 +1,14 @@
+{
+  "default_fps": 8,
+  "states": {
+    "idle": {
+      "fps": 6
+    },
+    "blink": {
+      "fps": 14
+    },
+    "talking": {
+      "fps": 10
+    }
+  }
+}
