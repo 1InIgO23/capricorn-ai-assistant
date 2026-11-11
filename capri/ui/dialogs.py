@@ -217,6 +217,11 @@ class SettingsDialog(QDialog):
         self._on_top = QCheckBox("Keep Capri above other windows")
         self._on_top.setChecked(bool(self._settings.get("always_on_top", True)))
         self._sleep = self._spin("sleep_minutes", 1, 240, " min")
+        self._dock_windows = QCheckBox("Peek from behind other app windows")
+        self._dock_windows.setToolTip("Drop Capri next to a window's side or top edge and she "
+                                      "hides behind it and peeks out. When bored she may also "
+                                      "do it on her own.")
+        self._dock_windows.setChecked(bool(self._settings.get("dock_to_windows", True)))
         self._remarks = QCheckBox("Allow rare spontaneous remarks")
         self._remarks.setChecked(bool(self._settings.get("remarks_enabled", True)))
         self._remark_gap = self._spin("remarks_interval_minutes", 5, 240, " min")
@@ -224,6 +229,7 @@ class SettingsDialog(QDialog):
         form.addRow("Effects intensity", self._effects)
         form.addRow("", self._on_top)
         form.addRow("Fall asleep after", self._sleep)
+        form.addRow("", self._dock_windows)
         form.addRow("", self._remarks)
         form.addRow("At most one remark every", self._remark_gap)
         return page
@@ -263,6 +269,7 @@ class SettingsDialog(QDialog):
         s.set("effects_intensity", self._effects.currentData())
         s.set("always_on_top", self._on_top.isChecked())
         s.set("sleep_minutes", self._sleep.value())
+        s.set("dock_to_windows", self._dock_windows.isChecked())
         s.set("remarks_enabled", self._remarks.isChecked())
         s.set("remarks_interval_minutes", self._remark_gap.value())
         s.set("workspace", self._workspace.text().strip())

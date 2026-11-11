@@ -95,7 +95,7 @@ class CapriApp(QObject):
         self.run: AgentRun | None = None
         self.confirm_dialog: ConfirmDialog | None = None
         self._return_pos: QPoint | None = None
-        self._return_dock: str | None = None
+        self._return_dock = None  # DockTarget to go back to after a confirmation
         self._streamed_any = False
         self._detached = False
 
@@ -542,9 +542,9 @@ class CapriApp(QObject):
         dialog.activateWindow()
 
         self._return_pos = self.character.char_pos()
-        self._return_dock = self.character._dock_edge
-        if self._return_dock:
-            self._return_pos = self.character._dock_position(False)
+        self._return_dock = self.character.dock
+        if self._return_dock is not None:
+            self._return_pos = self.character.dock_shown_pos()
         beside = QPoint(dialog.x() - self.character.S - 12,
                         dialog.y() + dialog.height() // 2 - self.character.S // 2)
         beside.setX(max(screen.left() + 4, beside.x()))
@@ -560,9 +560,8 @@ class CapriApp(QObject):
             dock, pos = self._return_dock, self._return_pos
 
             def restore() -> None:
-                if dock:
-                    self.character._dock_edge = dock
-                    self.character._peek_hidden = False
+                if dock is not None:
+                    self.character.set_dock(dock, hidden=False, burst=False)
 
             self.character.rerender_to(pos, done=restore)
             self._return_pos = None

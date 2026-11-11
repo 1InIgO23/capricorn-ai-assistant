@@ -47,6 +47,7 @@ If activation is blocked, run `Set-ExecutionPolicy -Scope CurrentUser RemoteSign
 | --- | --- |
 | Open / close the chat | Left-click Capri or the tray icon |
 | Move Capri | Drag her. Drop her at a screen edge to dock her there, half hidden |
+| Peek from a window | Drop her against the left, right or top edge of another app's window: she hides halfway behind it, peeks out and follows the window if it moves. When bored she may do it on her own (can be turned off in Settings) |
 | Move the chat | Drag its title bar. It then stays where you put it; double-click the title to send it back next to Capri |
 | Change the AI model / API key | Click the model name in the chat header (e.g. `local · qwen2.5:7b ▾`), or *AI model…* in the menu |
 | Detach the chat | `⧉` button (normal resizable window) |
@@ -86,7 +87,7 @@ Without images, an abstract placeholder is drawn.
 | `alert.png` | Waiting for your confirmation | `idle` |
 | `error.png` | Something failed | `alert` → `idle` |
 | `sleeping.png` | Asleep | `idle` |
-| `peek.png` | Docked at a screen edge | `idle` |
+| `peek.png` | Docked at a screen or window edge | `idle` |
 | `dragging_1.png`, `dragging_2.png` | While you drag her (2-frame animation) | `idle` |
 
 For animations, use numbered frames instead (`idle_1.png`, `idle_2.png`, …). Frame rates can

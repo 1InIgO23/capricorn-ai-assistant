@@ -18,12 +18,14 @@ from typing import Callable
 
 from PySide6.QtCore import QPoint, QPointF, QRect, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import (QColor, QCursor, QFontMetricsF, QGuiApplication, QImage, QPainter,
-                           QPen, QRadialGradient)
+                           QPen, QRadialGradient, QRegion)
 from PySide6.QtWidgets import QWidget
 
 from ..config.settings import Settings
 from ..config.theme import Theme
 from ..ui.style import blend, pulse, qcolor, qfont
+from . import app_windows
+from .docking import DockTarget, Rect, dock_position, find_dock, window_edges
 from .mood import MoodEngine
 from .placeholder import draw_construct
 from .sprites import SpriteLibrary
@@ -31,8 +33,13 @@ from .sprites import SpriteLibrary
 log = logging.getLogger(__name__)
 
 TICK_MS = 33
-DOCK_MARGIN = 28
+WINDOW_POLL_MS = 250
 _FRAGMENTS = ("01", "//", "{}", "#", "@", "::", "</>", "?", "10", "~")
+
+
+def _rect(rect: QRect) -> Rect:
+    """Convert a QRect to the docking module's Rect."""
+    return Rect(rect.x(), rect.y(), rect.width(), rect.height())
 
 
 class CharacterWindow(QWidget):
@@ -99,7 +106,6 @@ class CharacterWindow(QWidget):
         self._hud_hold_until = 0.0
         self._hud_color: QColor | None = None
         self._hud_override: tuple[str, QColor | None] = ("", None)
-        self._dock_screen = QRect()
         self._ticker: list[str] = []
         self._visual = ""
         self._chip_text = ""
@@ -108,8 +114,11 @@ class CharacterWindow(QWidget):
         self._press_pos: QPoint | None = None
         self._press_offset = QPoint()
         self._dragging = False
-        self._dock_edge: str | None = None
+        self._dock: DockTarget | None = None
         self._peek_hidden = False
+        self._dock_timer = QTimer(self)
+        self._dock_timer.setInterval(WINDOW_POLL_MS)
+        self._dock_timer.timeout.connect(self._follow_window)
         self._clicks: deque[float] = deque(maxlen=12)
         self._next_wander = now + random.uniform(360, 600)
 
@@ -184,15 +193,22 @@ class CharacterWindow(QWidget):
         self.move_char_to(target)
         dock = self.settings.get("window.dock")
         if dock in ("left", "right", "top", "bottom"):
-            self._dock_edge = dock
-            self._apply_peek(hidden=True, burst=False)
+            screen = _rect(self.current_screen_rect())
+            along = target.y() - screen.top if dock in ("left", "right") else \
+                target.x() - screen.left
+            self.set_dock(DockTarget("screen", dock, screen, along), hidden=True, burst=False)
 
     def save_position(self) -> None:
-        """Remember where she is (the fully visible position when docked)."""
-        pos = self._dock_position(False) if self._dock_edge else self.char_pos()
+        """Remember where she is (the fully visible position when docked).
+
+        Only screen docks are restored at the next start; the window she peeked
+        from may not exist any more.
+        """
+        pos = self.dock_shown_pos() if self._dock else self.char_pos()
         self.settings.set("window.x", int(pos.x()))
         self.settings.set("window.y", int(pos.y()))
-        self.settings.set("window.dock", self._dock_edge)
+        self.settings.set("window.dock",
+                          self._dock.edge if self._dock and self._dock.kind == "screen" else None)
 
     # ------------------------------------------------------- public control
     @property
@@ -314,8 +330,7 @@ class CharacterWindow(QWidget):
                     keep_dock: bool = False) -> None:
         """Dissolve here and reassemble with the character at *top_left*."""
         if not keep_dock:
-            self._dock_edge = None
-            self._peek_hidden = False
+            self.clear_dock()
         if self._intensity() <= 0 or not self.isVisible():
             self.move_char_to(top_left)
             if done:
@@ -349,7 +364,7 @@ class CharacterWindow(QWidget):
             return "happy"
         if self._sleeping:
             return "sleeping"
-        if self._dock_edge and self._peek_hidden:
+        if self._dock and self._peek_hidden:
             return "peek"
         if now < self._blink_until:
             return "blink"
@@ -496,51 +511,103 @@ class CharacterWindow(QWidget):
             self._slices = []
 
     # ------------------------------------------------------------- docking
-    def _dock_position(self, hidden: bool) -> QPoint:
-        """Character top-left for the docked edge, peeking (*hidden*) or fully shown."""
-        screen = self.current_screen_rect() if not self._peek_hidden else self._dock_screen
-        pos = self.char_pos()
-        half = self.S // 2
-        x, y = pos.x(), pos.y()
-        if self._dock_edge == "left":
-            x = screen.left() - half if hidden else screen.left() + 4
-        elif self._dock_edge == "right":
-            x = screen.right() - half if hidden else screen.right() - self.S - 4
-        elif self._dock_edge == "top":
-            y = screen.top() - half if hidden else screen.top() + 4
-        elif self._dock_edge == "bottom":
-            y = screen.bottom() - half if hidden else screen.bottom() - self.S - 4
+    def _docks_to_windows(self) -> bool:
+        return bool(self.settings.get("dock_to_windows", True))
+
+    @property
+    def dock(self) -> DockTarget | None:
+        """Where she is docked (``None`` when free)."""
+        return self._dock
+
+    def dock_shown_pos(self) -> QPoint:
+        """Top-left of her square when fully shown at the current dock."""
+        if self._dock is None:
+            return self.char_pos()
+        x, y = dock_position(self._dock, self.S, hidden=False)
         return QPoint(x, y)
 
+    def set_dock(self, target: DockTarget | None, hidden: bool = True,
+                 burst: bool = True) -> None:
+        """Dock at *target* (screen or window edge) and peek, or undock with ``None``."""
+        self._dock = target
+        if target is None:
+            self.clear_dock()
+            return
+        self._last_hover = time.monotonic() if not hidden else 0.0
+        self._apply_peek(hidden=hidden, burst=burst)
+        if target.kind == "window":
+            self._dock_timer.start()
+            log.info("Docked to the %s edge of window '%s'", target.edge, target.title[:60])
+        else:
+            self._dock_timer.stop()
+
+    def clear_dock(self) -> None:
+        self._dock = None
+        self._peek_hidden = False
+        self._dock_timer.stop()
+        self.clearMask()
+        self.update()
+
     def _apply_peek(self, hidden: bool, burst: bool = True) -> None:
-        if not self._peek_hidden:
-            self._dock_screen = self.current_screen_rect()
-        target = self._dock_position(hidden)
+        if self._dock is None:
+            return
+        x, y = dock_position(self._dock, self.S, hidden)
         self._peek_hidden = hidden
-        self.move_char_to(target)
+        self.move_char_to(QPoint(x, y))
+        self._update_window_mask()
         if burst:
             self.glitch_burst(0.18)
 
+    def _update_window_mask(self) -> None:
+        """While peeking from behind a window, the part of her overlapping that
+        window is masked out: it is not drawn and clicks there reach the window."""
+        if not (self._dock and self._dock.kind == "window" and self._peek_hidden):
+            self.clearMask()
+            return
+        r = self._dock.rect
+        behind = QRect(r.left - self.x(), r.top - self.y(), r.width, r.height)
+        self.setMask(QRegion(self.rect()).subtracted(QRegion(behind)))
+
     def _check_dock(self) -> None:
-        screen = self.current_screen_rect()
-        rect = self.char_rect_global()
-        edge = None
-        if rect.left() - screen.left() < DOCK_MARGIN:
-            edge = "left"
-        elif screen.right() - rect.right() < DOCK_MARGIN:
-            edge = "right"
-        elif rect.top() - screen.top() < DOCK_MARGIN:
-            edge = "top"
-        elif screen.bottom() - rect.bottom() < DOCK_MARGIN:
-            edge = "bottom"
-        self._dock_edge = edge
-        self._peek_hidden = False
-        if edge:
-            self._last_hover = time.monotonic()
-            self._apply_peek(hidden=True)
+        """After a drop: dock to a screen edge or to the edge of another app's window."""
+        windows = app_windows.list_windows() if self._docks_to_windows() else []
+        target = find_dock(_rect(self.char_rect_global()), _rect(self.current_screen_rect()),
+                           windows, use_windows=self._docks_to_windows())
+        if target is None:
+            self.clear_dock()
+        else:
+            self.set_dock(target, hidden=True)
+
+    def _follow_window(self) -> None:
+        """Keep up with the window she peeks from; step out when it goes away."""
+        dock = self._dock
+        if dock is None or dock.kind != "window":
+            self._dock_timer.stop()
+            return
+        if self._dragging or self._rerender:
+            return
+        rect = app_windows.window_rect(dock.handle)
+        if rect == dock.rect:
+            return
+        if not self._peek_hidden:
+            # She is standing fully outside (hovered, chat open, busy...): the window
+            # moving or closing must not drag her along. She stays and is free again.
+            log.info("Window '%s' moved while Capri was out; undocking.", dock.title[:60])
+            self.clear_dock()
+            return
+        if rect is None:  # closed, minimized or hidden: re-render fully visible beside it
+            shown = self.dock_shown_pos()
+            self.clear_dock()
+            screen = self.current_screen_rect()
+            shown.setX(max(screen.left(), min(shown.x(), screen.right() - self.S)))
+            shown.setY(max(screen.top(), min(shown.y(), screen.bottom() - self.S)))
+            self.rerender_to(shown)
+            return
+        self._dock = dock.with_rect(rect)  # peeking: follow the window
+        self._apply_peek(True, burst=False)
 
     def _update_dock(self, now: float) -> None:
-        if not self._dock_edge or self._dragging or self._rerender:
+        if not self._dock or self._dragging or self._rerender:
             return
         want_shown = (self._hovered or self._pinned or bool(self._activity) or self._alert
                       or now - self._last_hover < 1.4)
@@ -549,13 +616,33 @@ class CharacterWindow(QWidget):
         elif not want_shown and not self._peek_hidden:
             self._apply_peek(hidden=True)
 
+    def _peek_from_window(self) -> bool:
+        """Bored: re-render to peek from behind a nearby app window. False if none."""
+        screen = _rect(self.current_screen_rect())
+        edges = window_edges(app_windows.list_windows()[:8], screen, self.S)
+        if not edges:
+            return False
+        cx, cy = _rect(self.char_rect_global()).center
+
+        def distance(t: DockTarget) -> float:
+            x, y = dock_position(t, self.S, hidden=True)
+            return abs(x - cx) + abs(y - cy)
+
+        target = random.choice(sorted(edges, key=distance)[:3])
+        x, y = dock_position(target, self.S, hidden=True)
+        self.rerender_to(QPoint(x, y), done=lambda: self.set_dock(target, hidden=True,
+                                                                    burst=False))
+        return True
+
     def _update_wander(self, now: float, mood: str) -> None:
         """When bored she occasionally re-renders somewhere nearby."""
         if now < self._next_wander:
             return
         self._next_wander = now + random.uniform(420, 780)
-        if (mood != "bored" or self._busy() or self.asleep or self._dock_edge or self._pinned
+        if (mood != "bored" or self._busy() or self.asleep or self._dock or self._pinned
                 or self._dragging):
+            return
+        if self._docks_to_windows() and random.random() < 0.5 and self._peek_from_window():
             return
         screen = self.current_screen_rect()
         pos = self.char_pos()
@@ -589,8 +676,7 @@ class CharacterWindow(QWidget):
         if not self._dragging and (current - self._press_pos).manhattanLength() > 5:
             self._dragging = True
             self.wake()
-            self._dock_edge = None
-            self._peek_hidden = False
+            self.clear_dock()
             self._rerender = None
             self.interaction.emit("drag")
         if self._dragging:
