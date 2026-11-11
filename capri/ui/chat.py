@@ -7,7 +7,7 @@ from PySide6.QtCore import (QEasingCurve, QEvent, QObject, QPoint, QRect, QRectF
 from PySide6.QtGui import QColor, QKeyEvent, QPainter, QRegion
 from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QInputDialog, QLabel, QListWidget,
                                QListWidgetItem, QMessageBox, QPlainTextEdit, QPushButton,
-                               QScrollArea, QVBoxLayout, QWidget)
+                               QScrollArea, QSizePolicy, QVBoxLayout, QWidget)
 
 from ..config.theme import Theme
 from .messages import MessageWidget, ToolEntry
@@ -40,6 +40,34 @@ def ask_yes_no(parent: QWidget, title: str, text: str) -> bool:
     _on_top(box)
     box.raise_()
     return box.exec() == QMessageBox.Yes
+
+
+class ElidingLabel(QLabel):
+    """A label that cuts its text with "…" instead of widening the window."""
+
+    def __init__(self, text: str = "", parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._full = text
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.setMinimumWidth(20)
+        self.set_full_text(text)
+
+    def set_full_text(self, text: str) -> None:
+        self._full = text
+        self._elide()
+
+    def _elide(self) -> None:
+        self.setText(self.fontMetrics().elidedText(self._full, Qt.ElideRight,
+                                                   max(10, self.width())))
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        self._elide()
+
+    def changeEvent(self, event) -> None:  # noqa: N802 (font changes from the style sheet)
+        super().changeEvent(event)
+        if event.type() in (QEvent.FontChange, QEvent.StyleChange):
+            self._elide()
 
 
 class ChatInput(QPlainTextEdit):
@@ -128,7 +156,7 @@ class ChatContent(QWidget):
         top = QHBoxLayout()
         self._drawer_button = self._flat("☰", "Conversations")
         self._drawer_button.clicked.connect(self._toggle_drawer)
-        self._title = QLabel("CAPRI")
+        self._title = ElidingLabel("CAPRI")
         self._title.setObjectName("title")
         self._title.setToolTip("Drag to move the chat. Double-click to put it back next to Capri.")
         self._badge = QPushButton("")
@@ -231,7 +259,9 @@ class ChatContent(QWidget):
             "Attach the chat back to Capri" if detached else "Detach into a normal window")
 
     def set_title(self, title: str) -> None:
-        self._title.setText(title.upper()[:40] if title else "CAPRI")
+        self._title.set_full_text(title.upper() if title else "CAPRI")
+        hint = "Drag to move the chat. Double-click to put it back next to Capri."
+        self._title.setToolTip(f"{title}\n{hint}" if title else hint)
 
     def set_backend_info(self, badge: str, hint: str) -> None:
         """Show the active model and the local/cloud capability hint."""

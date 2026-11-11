@@ -64,6 +64,33 @@ class AutoTextBrowser(QTextBrowser):
         event.ignore()  # let the conversation scroll area handle the wheel
 
 
+class ElidingButton(QPushButton):
+    """A flat button whose text is cut with "…" instead of widening the window."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._full = ""
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+
+    def set_full_text(self, text: str) -> None:
+        self._full = text
+        self.setToolTip(text)
+        self._elide()
+
+    def _elide(self) -> None:
+        width = max(10, self.width() - 12)
+        super().setText(self.fontMetrics().elidedText(self._full, Qt.ElideRight, width))
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        self._elide()
+
+    def minimumSizeHint(self):  # noqa: N802
+        hint = super().minimumSizeHint()
+        hint.setWidth(40)
+        return hint
+
+
 class CodeBlock(QFrame):
     """A syntax-highlighted code block with a language label and a copy button."""
 
@@ -224,9 +251,8 @@ class ToolEntry(QFrame):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 0, 4, 0)
         layout.setSpacing(0)
-        self._button = QPushButton()
+        self._button = ElidingButton()
         self._button.setCursor(Qt.PointingHandCursor)
-        self._button.setToolTip("Click to show details")
         self._button.clicked.connect(self.toggle)
         layout.addWidget(self._button)
         self._details = AutoTextBrowser(theme)
@@ -242,13 +268,15 @@ class ToolEntry(QFrame):
 
     def _refresh(self) -> None:
         arrow = "▾" if self._open else "▸"
-        self._button.setText(f"{arrow} {self._label} · {self._summary}")
+        self._button.set_full_text(f"{arrow} {self._label} · {self._summary}")
         self._button.setStyleSheet(
             f"QPushButton {{ text-align: left; background: transparent; border: none; "
             f"padding: 2px 4px; color: {self._color}; "
             f"font-family: {css_fonts(self._theme, 'mono')}; "
             f"font-size: {max(7, self._theme.font_size('mono_size') - 1)}pt; }}"
             f"QPushButton:hover {{ color: {self._theme.color('secondary')}; }}")
+        self._button.ensurePolished()
+        self._button._elide()
 
     def toggle(self) -> None:
         self._open = not self._open
