@@ -120,10 +120,8 @@ assets/            theme.json and character images
 tests/             unit tests (python -m pytest)
 ```
 
-## AI
+## AI Disclousure
 
-This software, including its source code and documentation, was generated entirely by
-Claude Fable 5.2 and Claude Opus 5.5, artificial intelligence models developed by Anthropic,
-through the methodology known as "vibe coding". The character images were generated with
-ChatGPT Images by OpenAI. The software is provided "as is", without warranty of any kind,
-and users are advised to review the code before executing it.
+This software, including its source code and documentation, was made with the assistance by
+Claude Fable 5.2 and Claude Opus 5.5, artificial intelligence models developed by Anthropic. 
+The character images were made with the assistance of ChatGPT by OpenAI.
