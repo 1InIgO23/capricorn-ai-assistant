@@ -87,6 +87,7 @@ Without images, an abstract placeholder is drawn.
 | `sleeping.png` | Asleep | `idle` |
 | `standby.png` | Long idle | only a glowing core remains |
 | `peek.png` | Docked at a screen edge | `idle` |
+| `dragging_1.png`, `dragging_2.png` | While you drag her (2-frame animation) | `idle` |
 
 For animations, use numbered frames instead (`idle_1.png`, `idle_2.png`, …). Frame rates can
 be set in `assets/character/animation.json` (see `animation.example.json`). The app icon is

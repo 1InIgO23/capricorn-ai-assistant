@@ -81,3 +81,15 @@ def test_every_state_has_a_fallback_entry() -> None:
     assert set(FALLBACKS) == set(STATES)
     for chain in FALLBACKS.values():
         assert all(state in STATES for state in chain)
+
+
+def test_dragging_two_frame_animation(tmp_path: Path) -> None:
+    touch(tmp_path, "idle.png", "dragging_2.png", "dragging_1.png")
+    index = scan_assets(tmp_path)
+    assert [p.name for p in index.resolve("dragging").frames] == ["dragging_1.png",
+                                                                    "dragging_2.png"]
+    assert scan_assets(tmp_path / "x").resolve("dragging") is None
+    only_idle = tmp_path / "only_idle"
+    only_idle.mkdir()
+    touch(only_idle, "idle.png")
+    assert scan_assets(only_idle).resolve("dragging").state == "idle"

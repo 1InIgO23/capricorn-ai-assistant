@@ -44,6 +44,7 @@ DEFAULT_THEME: dict[str, Any] = {
         "sleeping": "#6A3FA8",
         "standby": "#4B2E7A",
         "peek": "#FF1450",
+        "dragging": "#FF8DB4",
     },
     "mood_tints": {
         "bored": "#6A3FA8",

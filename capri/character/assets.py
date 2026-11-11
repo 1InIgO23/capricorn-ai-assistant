@@ -19,7 +19,7 @@ log = logging.getLogger(__name__)
 
 STATES: tuple[str, ...] = (
     "idle", "blink", "happy", "talking", "thinking", "searching", "files",
-    "coding", "alert", "error", "sleeping", "standby", "peek",
+    "coding", "alert", "error", "sleeping", "standby", "peek", "dragging",
 )
 
 #: For each state, the states whose images are tried next (in order) when the
@@ -40,6 +40,7 @@ FALLBACKS: dict[str, tuple[str, ...]] = {
     "sleeping": ("idle",),
     "standby": (),
     "peek": ("idle",),
+    "dragging": ("idle",),
 }
 
 DEFAULT_FPS = 8.0

@@ -352,6 +352,8 @@ class CharacterWindow(QWidget):
     def _resolve_state(self, now: float) -> str:
         if self._standby:
             return "standby"
+        if self._dragging:
+            return "dragging"
         if now < self._error_until:
             return "error"
         if self._alert:
@@ -611,6 +613,7 @@ class CharacterWindow(QWidget):
         current = event.globalPosition().toPoint()
         if not self._dragging and (current - self._press_pos).manhattanLength() > 5:
             self._dragging = True
+            self.wake()
             self._dock_edge = None
             self._peek_hidden = False
             self._rerender = None

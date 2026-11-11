@@ -9,6 +9,9 @@
     },
     "talking": {
       "fps": 10
+    },
+    "dragging": {
+      "fps": 6
     }
   }
 }
