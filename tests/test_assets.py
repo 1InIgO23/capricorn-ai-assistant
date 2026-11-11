@@ -46,11 +46,11 @@ def test_fallback_chain(tmp_path: Path) -> None:
     assert index.resolve("happy").state == "idle"
 
 
-def test_standby_never_borrows_another_image(tmp_path: Path) -> None:
-    touch(tmp_path, "idle.png", "sleeping.png")
+def test_idle_alone_covers_every_state(tmp_path: Path) -> None:
+    touch(tmp_path, "idle.png")
     index = scan_assets(tmp_path)
-    assert index.resolve("standby") is None
-    assert index.placeholder_states() == ["standby"]
+    assert index.placeholder_states() == []
+    assert "standby" not in STATES
 
 
 def test_unknown_and_malformed_files_are_ignored(tmp_path: Path) -> None:

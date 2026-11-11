@@ -73,9 +73,7 @@ class CharacterWindow(QWidget):
         self._blink_until = 0.0
         self._next_blink = now + random.uniform(3, 6)
         self._sleeping = False
-        self._standby = False
         self._last_interaction = now
-        self._quiet = False
         self._pinned = False
         # pose
         self._face = 1.0
@@ -83,7 +81,6 @@ class CharacterWindow(QWidget):
         self._tilt = 0.0
         self._hovered = False
         self._last_hover = 0.0
-        self._body_alpha = 1.0
         self._shake_until = 0.0
         # effects
         self._glitch_until = 0.0
@@ -204,15 +201,7 @@ class CharacterWindow(QWidget):
 
     @property
     def asleep(self) -> bool:
-        return self._sleeping or self._standby
-
-    @property
-    def quiet(self) -> bool:
-        return self._quiet
-
-    def set_quiet(self, quiet: bool) -> None:
-        self._quiet = quiet
-        self.update()
+        return self._sleeping
 
     def set_pinned(self, pinned: bool) -> None:
         """Keep her fully visible (not peeking) while the chat is open."""
@@ -309,10 +298,10 @@ class CharacterWindow(QWidget):
         self._last_interaction = time.monotonic()
 
     def wake(self) -> None:
-        """Wake from sleep/standby with a quick reassemble."""
+        """Wake from sleep with a quick reassemble."""
         self._last_interaction = time.monotonic()
-        if self._sleeping or self._standby:
-            self._sleeping = self._standby = False
+        if self._sleeping:
+            self._sleeping = False
             self.reassemble()
             self.woke.emit()
 
@@ -341,8 +330,6 @@ class CharacterWindow(QWidget):
 
     # -------------------------------------------------------------- helpers
     def _intensity(self) -> float:
-        if self._quiet:
-            return 0.0
         return self.theme.intensity(self.settings.effects_level())
 
     def _night(self) -> bool:
@@ -350,8 +337,6 @@ class CharacterWindow(QWidget):
         return hour >= 23 or hour < 6
 
     def _resolve_state(self, now: float) -> str:
-        if self._standby:
-            return "standby"
         if self._dragging:
             return "dragging"
         if now < self._error_until:
@@ -390,9 +375,6 @@ class CharacterWindow(QWidget):
         dt = min(0.25, now - self._last_tick)
         self._last_tick = now
         self._tick_count += 1
-        calm = (self._standby or self._quiet) and not self._rerender and not self._busy()
-        if calm and self._tick_count % 3:
-            return
         mood = self.mood.mood
         speed = {"bored": 0.8, "content": 1.0, "excited": 1.35, "tired": 0.65}.get(mood, 1.0)
         if self._sleeping:
@@ -415,7 +397,7 @@ class CharacterWindow(QWidget):
         center = rect.center()
         dx, dy = cursor.x() - center.x(), cursor.y() - center.y()
         tilt_target = 0.0
-        if not self.asleep and not self._quiet and math.hypot(dx, dy) < radius:
+        if not self.asleep and math.hypot(dx, dy) < radius:
             if abs(dx) > 12:
                 self._face_target = 1.0 if dx > 0 else -1.0
             tilt_target = (max(-1.0, min(1.0, dy / radius))
@@ -426,14 +408,10 @@ class CharacterWindow(QWidget):
         # rest
         idle_for = now - self._last_interaction
         sleep_after = float(self.settings.get("sleep_minutes", 10) or 10) * 60
-        standby_after = max(sleep_after + 60,
-                            float(self.settings.get("standby_minutes", 30) or 30) * 60)
         if self._night():
             sleep_after *= 0.5
         if not self._busy() and not self._pinned:
-            if not self._standby and idle_for > standby_after:
-                self._standby, self._sleeping = True, False
-            elif not self._sleeping and not self._standby and idle_for > sleep_after:
+            if not self._sleeping and idle_for > sleep_after:
                 self._sleeping = True
 
         # state bookkeeping
@@ -447,9 +425,6 @@ class CharacterWindow(QWidget):
             self._blink_until = now + (own if own > 0 else 0.14)
             self._next_blink = now + random.uniform(2.5, 6.5) / max(0.5, speed)
 
-        # body fade for standby (kept visible if a real standby image exists)
-        body_target = 0.0 if (self._standby and not self.sprites.has_own("standby")) else 1.0
-        self._body_alpha += (body_target - self._body_alpha) * min(1.0, dt * 2.5)
 
         self._update_rerender(now)
         self._update_glitch(now, speed)
@@ -580,7 +555,7 @@ class CharacterWindow(QWidget):
             return
         self._next_wander = now + random.uniform(420, 780)
         if (mood != "bored" or self._busy() or self.asleep or self._dock_edge or self._pinned
-                or self._quiet or self._dragging):
+                or self._dragging):
             return
         screen = self.current_screen_rect()
         pos = self.char_pos()
@@ -674,8 +649,6 @@ class CharacterWindow(QWidget):
         breath = 1.0 + float(self.theme.fx("breath_scale", 0.02)) * min(1.0, intensity * 2) * \
             math.sin(self._t * 2 * math.pi / float(self.theme.fx("breath_period", 4.6)))
         state = self._state
-        if state == "standby" and not self.sprites.has_own("standby"):
-            state = "sleeping"  # the body that fades out; the core is drawn separately
         pixmap = self.sprites.frame(state, self._t - self._state_since)
         if pixmap is not None:
             face = self._face if abs(self._face) > 0.08 else (0.08 if self._face >= 0 else -0.08)
@@ -687,7 +660,7 @@ class CharacterWindow(QWidget):
             painter.scale(breath, breath)
             draw_construct(painter, QRectF(-S / 2, -S / 2, S, S), state, self._t, glow,
                            qcolor(self.theme.color("secondary")), qfont(self.theme, "mono"),
-                           motion=1.0 if not self._quiet else 0.0)
+                           motion=1.0)
         painter.end()
         if intensity <= 0:
             return body
@@ -777,26 +750,21 @@ class CharacterWindow(QWidget):
         cy = self.char_rect.center().y() + bob
 
         opacity = 1.0
-        if self._quiet:
-            opacity *= float(self.theme.fx("quiet_opacity", 0.6))
         if self._night() and not self._busy():
             opacity *= float(self.theme.fx("night_dim", 0.8))
         if self._sleeping:
             opacity *= 0.7
 
-        active = self._dissolve < 0.6 and self._body_alpha > 0.5
+        active = self._dissolve < 0.6
         if self._visual == "script" and active and not self._alert:
             self._draw_script_pulse(painter, cx, cy, glow)
         if self._visual == "search" and active:
             self._draw_search_ring(painter, cx, cy, glow, front=False)
 
-        if self._body_alpha > 0.01:
-            image = self._compose(intensity, glow)
-            painter.setOpacity(opacity * self._body_alpha)
-            self._draw_bands(painter, image, cx - self.F / 2, cy - self.F / 2, glow)
-            painter.setOpacity(1.0)
-        if self._body_alpha < 0.99:
-            self._draw_core(painter, cx, self.char_rect.center().y(), 1.0 - self._body_alpha)
+        image = self._compose(intensity, glow)
+        painter.setOpacity(opacity)
+        self._draw_bands(painter, image, cx - self.F / 2, cy - self.F / 2, glow)
+        painter.setOpacity(1.0)
 
         if self._visual == "search" and active:
             self._draw_search_ring(painter, cx, cy, glow, front=True)
@@ -804,7 +772,7 @@ class CharacterWindow(QWidget):
             self._draw_flash(painter, cx, cy, (self._flash_until - now) / 0.6)
         if self._chip_text and active and self._visual in ("files", "script"):
             self._draw_file_link(painter, cx, cy)
-        if self._sleeping and self._body_alpha > 0.5 and not self._quiet:
+        if self._sleeping:
             self._draw_sleep_glyphs(painter, cx, cy)
         self._draw_hud(painter, glow)
 
@@ -902,27 +870,6 @@ class CharacterWindow(QWidget):
         painter.setPen(qcolor(self.theme.color("text")))
         painter.drawText(QRectF(chip.left() + 26, chip.top(), chip_w - 30, chip_h),
                          Qt.AlignVCenter | Qt.AlignLeft, text)
-        painter.restore()
-
-    def _draw_core(self, painter: QPainter, cx: float, cy: float, strength: float) -> None:
-        """Standby: only a dim glowing core remains, pulsing slowly."""
-        beat = 0.5 + 0.5 * math.sin(time.monotonic() * 2 * math.pi / 4.0)
-        color = qcolor(self.theme.state_color("standby"))
-        radius = self.S * (0.10 + 0.03 * beat)
-        gradient = QRadialGradient(QPointF(cx, cy), radius * 2.2)
-        inner = QColor(color)
-        inner.setAlphaF(strength * (0.45 + 0.35 * beat))
-        middle = QColor(color)
-        middle.setAlphaF(strength * 0.18)
-        outer = QColor(color)
-        outer.setAlphaF(0.0)
-        gradient.setColorAt(0.0, inner)
-        gradient.setColorAt(0.4, middle)
-        gradient.setColorAt(1.0, outer)
-        painter.save()
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(gradient)
-        painter.drawEllipse(QPointF(cx, cy), radius * 2.2, radius * 2.2)
         painter.restore()
 
     def _draw_sleep_glyphs(self, painter: QPainter, cx: float, cy: float) -> None:

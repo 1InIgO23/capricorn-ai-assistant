@@ -19,13 +19,12 @@ log = logging.getLogger(__name__)
 
 STATES: tuple[str, ...] = (
     "idle", "blink", "happy", "talking", "thinking", "searching", "files",
-    "coding", "alert", "error", "sleeping", "standby", "peek", "dragging",
+    "coding", "alert", "error", "sleeping", "peek", "dragging",
 )
 
 #: For each state, the states whose images are tried next (in order) when the
 #: state has no image of its own. When the chain is exhausted the runtime
-#: placeholder construct is drawn. ``standby`` deliberately has no fallback:
-#: without a ``standby`` image the body fades and only the glowing core remains.
+#: placeholder construct is drawn.
 FALLBACKS: dict[str, tuple[str, ...]] = {
     "idle": (),
     "blink": ("idle",),
@@ -38,7 +37,6 @@ FALLBACKS: dict[str, tuple[str, ...]] = {
     "alert": ("idle",),
     "error": ("alert", "idle"),
     "sleeping": ("idle",),
-    "standby": (),
     "peek": ("idle",),
     "dragging": ("idle",),
 }

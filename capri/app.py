@@ -27,7 +27,6 @@ from .llm import persona
 from .llm.agent import AgentRun
 from .llm.base import BackendError, Message, available_backends, create_backend
 from .storage.conversations import Conversation, ConversationStore
-from .system.windows import foreground_is_fullscreen
 from .tools import ToolContext, build_registry, default_policy
 from .tools.base import ConfirmRequest, ToolResult
 from .ui.chat import ChatContent, DetachedWindow, HoloPanel
@@ -98,7 +97,6 @@ class CapriApp(QObject):
         self._return_pos: QPoint | None = None
         self._return_dock: str | None = None
         self._streamed_any = False
-        self._auto_quiet = False
         self._detached = False
 
         self.content = ChatContent(self.theme)
@@ -117,16 +115,11 @@ class CapriApp(QObject):
         self._connect()
         self._show_conversation()
         self._refresh_backend_info()
-        self._apply_quiet()
 
         self.minute_timer = QTimer(self)
         self.minute_timer.setInterval(60_000)
         self.minute_timer.timeout.connect(self._every_minute)
         self.minute_timer.start()
-        self.fullscreen_timer = QTimer(self)
-        self.fullscreen_timer.setInterval(2500)
-        self.fullscreen_timer.timeout.connect(self._check_fullscreen)
-        self.fullscreen_timer.start()
 
         app.aboutToQuit.connect(self._shutdown)
         self.character.show()
@@ -158,10 +151,6 @@ class CapriApp(QObject):
         self.menu = QMenu()
         self.act_chat = QAction("Open chat", self.menu)
         self.act_chat.triggered.connect(self.open_chat)
-        self.act_quiet = QAction("Quiet mode", self.menu)
-        self.act_quiet.setCheckable(True)
-        self.act_quiet.setChecked(bool(self.settings.get("quiet_mode", False)))
-        self.act_quiet.toggled.connect(self._toggle_quiet)
         act_model = QAction("AI model…", self.menu)
         act_model.triggered.connect(self.open_model_dialog)
         act_settings = QAction("Settings…", self.menu)
@@ -174,7 +163,6 @@ class CapriApp(QObject):
         act_quit = QAction("Quit", self.menu)
         act_quit.triggered.connect(self.app.quit)
         self.menu.addAction(self.act_chat)
-        self.menu.addAction(self.act_quiet)
         self.menu.addSeparator()
         self.menu.addAction(act_model)
         self.menu.addAction(act_settings)
@@ -215,6 +203,8 @@ class CapriApp(QObject):
         c.rename_requested.connect(self._rename_conversation)
         c.delete_requested.connect(self._delete_conversation)
         c.model_requested.connect(self.open_model_dialog)
+        c.settings_requested.connect(self.open_settings)
+        c.drawer_toggled.connect(self._drawer_toggled)
         self.detached.closed.connect(self._detached_closed)
         self.holo.snap_back_requested.connect(self._snap_chat_back)
 
@@ -285,6 +275,12 @@ class CapriApp(QObject):
             self._detached = False
             self.holo.set_content(self.content)
             self.content.set_detached(False)
+
+    def _drawer_toggled(self, opened: bool) -> None:
+        """Resize the holo panel for the conversation drawer (the detached window is
+        resizable by hand, so it is left alone)."""
+        if not self._detached:
+            self.holo.set_drawer(opened)
 
     def _snap_chat_back(self) -> None:
         """Put the chat panel back next to Capri; it follows her again."""
@@ -582,8 +578,6 @@ class CapriApp(QObject):
     # --------------------------------------------------------------- bubbles
     def _bubble(self, text: str, payload: str = "", timeout: int = 7000,
                 color: str | None = None, force: bool = False) -> None:
-        if self.character.quiet and not force and not payload:
-            return
         self.bubble.show_text(text, self.character.char_rect_global(),
                               self.character.current_screen_rect(), timeout, payload, color)
 
@@ -596,27 +590,7 @@ class CapriApp(QObject):
         color = self.theme.color("error" if kind == "annoyed" else "accent_soft")
         self._bubble(random.choice(lines), timeout=4000, color=color)
 
-    # ------------------------------------------------------------ quiet/mood
-    def _toggle_quiet(self, enabled: bool) -> None:
-        self.settings.set("quiet_mode", bool(enabled))
-        self.settings.save()
-        self._apply_quiet()
-
-    def _apply_quiet(self) -> None:
-        quiet = bool(self.settings.get("quiet_mode", False)) or self._auto_quiet
-        self.character.set_quiet(quiet)
-        if quiet:
-            self.bubble.hide()
-
-    def _check_fullscreen(self) -> None:
-        enabled = bool(self.settings.get("auto_quiet_fullscreen", True))
-        fullscreen = enabled and foreground_is_fullscreen()
-        if fullscreen != self._auto_quiet:
-            self._auto_quiet = fullscreen
-            log.info("Fullscreen app %s: automatic quiet mode %s",
-                     "detected" if fullscreen else "gone", "on" if fullscreen else "off")
-            self._apply_quiet()
-
+    # ------------------------------------------------------------------ mood
     def _every_minute(self) -> None:
         hour = _dt.datetime.now().hour
         session_minutes = (time.time() - self.started) / 60.0
@@ -625,7 +599,7 @@ class CapriApp(QObject):
         self._maybe_remark()
 
     def _maybe_remark(self) -> None:
-        if not self.settings.get("remarks_enabled", True) or self.character.quiet:
+        if not self.settings.get("remarks_enabled", True):
             return
         if self.run is not None or self.character.asleep or self.confirm_dialog is not None:
             return
@@ -641,27 +615,35 @@ class CapriApp(QObject):
     def open_settings(self) -> None:
         dialog = SettingsDialog(self.settings, self.theme)
         dialog.setWindowIcon(self.icon)
+        self._place_dialog(dialog)
         if dialog.exec():
             for secret in self.settings.secrets():
                 register_secret(secret)
             self.character.apply_settings()
             self.holo.set_always_on_top(bool(self.settings.get("always_on_top", True)))
             self._refresh_backend_info()
-            self._apply_quiet()
             log.info("Settings saved. Backend: %s", self.settings.get("backend"))
 
-    def open_model_dialog(self) -> None:
-        """Open the Model window; changes apply from the next message."""
-        dialog = ModelDialog(self.settings, self.theme)
-        dialog.setWindowIcon(self.icon)
-        anchor = self.holo.geometry() if self.holo.isVisible() else \
-            self.character.char_rect_global()
+    def _place_dialog(self, dialog) -> None:
+        """Center a dialog over the open chat (or over Capri), inside the screen."""
+        if self._detached and self.detached.isVisible():
+            anchor = self.detached.geometry()
+        elif self.holo.isVisible():
+            anchor = self.holo.geometry()
+        else:
+            anchor = self.character.char_rect_global()
         dialog.adjustSize()
         screen = self.character.current_screen_rect()
         x = anchor.center().x() - dialog.width() // 2
         y = anchor.center().y() - dialog.height() // 2
         dialog.move(max(screen.left() + 8, min(x, screen.right() - dialog.width() - 8)),
                     max(screen.top() + 8, min(y, screen.bottom() - dialog.height() - 8)))
+
+    def open_model_dialog(self) -> None:
+        """Open the Model window; changes apply from the next message."""
+        dialog = ModelDialog(self.settings, self.theme)
+        dialog.setWindowIcon(self.icon)
+        self._place_dialog(dialog)
         if dialog.exec():
             for secret in self.settings.secrets():
                 register_secret(secret)

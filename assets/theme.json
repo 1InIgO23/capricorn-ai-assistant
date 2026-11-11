@@ -29,7 +29,6 @@
     "alert": "#FF8A1F",
     "error": "#FF3030",
     "sleeping": "#6A3FA8",
-    "standby": "#4B2E7A",
     "peek": "#FF1450",
     "dragging": "#FF8DB4"
   },
@@ -88,7 +87,6 @@
     "awareness_radius": 280,
     "pulse_period": 1.1,
     "night_dim": 0.8,
-    "quiet_opacity": 0.6,
     "panel_scanline_alpha": 0.05,
     "panel_radius": 10,
     "decrypt_chars_per_second": 60

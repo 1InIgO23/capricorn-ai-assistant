@@ -5,7 +5,7 @@ from __future__ import annotations
 from PySide6.QtCore import (QEasingCurve, QEvent, QObject, QPoint, QRect, QRectF, Qt, QTimer,
                             QVariantAnimation, Signal)
 from PySide6.QtGui import QColor, QKeyEvent, QPainter, QRegion
-from PySide6.QtWidgets import (QFrame, QHBoxLayout, QInputDialog, QLabel, QListWidget,
+from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QInputDialog, QLabel, QListWidget,
                                QListWidgetItem, QMessageBox, QPlainTextEdit, QPushButton,
                                QScrollArea, QVBoxLayout, QWidget)
 
@@ -67,6 +67,8 @@ class ChatContent(QWidget):
     rename_requested = Signal(str, str)
     delete_requested = Signal(str)
     model_requested = Signal()
+    settings_requested = Signal()
+    drawer_toggled = Signal(bool)
 
     def __init__(self, theme: Theme, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -125,8 +127,7 @@ class ChatContent(QWidget):
         column.setSpacing(6)
         top = QHBoxLayout()
         self._drawer_button = self._flat("☰", "Conversations")
-        self._drawer_button.clicked.connect(
-            lambda: self._drawer.setVisible(not self._drawer.isVisible()))
+        self._drawer_button.clicked.connect(self._toggle_drawer)
         self._title = QLabel("CAPRI")
         self._title.setObjectName("title")
         self._title.setToolTip("Drag to move the chat. Double-click to put it back next to Capri.")
@@ -135,6 +136,8 @@ class ChatContent(QWidget):
         self._badge.setCursor(Qt.PointingHandCursor)
         self._badge.setToolTip("Change the AI model or set an API key")
         self._badge.clicked.connect(self.model_requested)
+        settings_button = self._flat("⚙", "Settings")
+        settings_button.clicked.connect(self.settings_requested)
         self._detach_button = self._flat("⧉", "Detach into a normal window")
         self._detach_button.clicked.connect(self.detach_requested)
         close_button = self._flat("✕", "Close the chat")
@@ -142,6 +145,7 @@ class ChatContent(QWidget):
         top.addWidget(self._drawer_button)
         top.addWidget(self._title, 1)
         top.addWidget(self._badge)
+        top.addWidget(settings_button)
         top.addWidget(self._detach_button)
         top.addWidget(close_button)
         column.addLayout(top)
@@ -182,6 +186,16 @@ class ChatContent(QWidget):
         bottom.addWidget(self._send_button)
         column.addLayout(bottom)
         root.addLayout(column, 1)
+
+    DRAWER_WIDTH = 174  # drawer width plus spacing
+
+    def drawer_open(self) -> bool:
+        return self._drawer.isVisible()
+
+    def _toggle_drawer(self) -> None:
+        opened = not self._drawer.isVisible()
+        self.drawer_toggled.emit(opened)  # before the change, so the panel can record its size
+        self._drawer.setVisible(opened)
 
     def drag_handles(self) -> list[QWidget]:
         """Widgets that can be used to drag the panel around (the title bar)."""
@@ -374,7 +388,7 @@ class HoloPanel(QWidget):
 
     snap_back_requested = Signal()
 
-    PANEL_W, PANEL_H = 430, 560
+    PANEL_W, PANEL_H = 490, 560
 
     def __init__(self, theme: Theme, always_on_top: bool = True) -> None:
         super().__init__(None)
@@ -442,6 +456,32 @@ class HoloPanel(QWidget):
 
     def mouseReleaseEvent(self, _event) -> None:  # noqa: N802
         self._drag_offset = None
+
+    def set_drawer(self, opened: bool) -> None:
+        """Grow for the conversation drawer, and shrink back when it closes.
+
+        Must be called *before* the drawer is shown or hidden: Qt grows the window
+        on its own as soon as the drawer appears, so the closed size is recorded
+        first. The edge next to Capri stays put, so the panel grows away from her.
+        """
+        right = self.x() + self.width()
+        if opened:
+            self._closed_width = self.width()
+            target = self._closed_width + ChatContent.DRAWER_WIDTH
+        else:
+            target = getattr(self, "_closed_width", self.PANEL_W)
+
+        def apply() -> None:
+            # process pending layout updates first, or the old (wider) minimum size of the
+            # nested layouts still blocks the shrink
+            QApplication.sendPostedEvents(None, QEvent.LayoutRequest)
+            self._layout.activate()
+            self.resize(target, self.height())
+            if self.side == "left":
+                self.move(right - self.width(), self.y())
+            self.keep_on_screen()
+
+        QTimer.singleShot(0, apply)
 
     def keep_on_screen(self) -> None:
         """Pull the panel back inside the nearest screen (after a resolution change etc.)."""

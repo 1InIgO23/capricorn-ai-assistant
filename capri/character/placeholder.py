@@ -24,7 +24,6 @@ _PARAMS: dict[str, tuple[float, float, float, float, int, str]] = {
     "alert": (1.0, 2.2, 1.12, 1.3, 4, "!▲"),
     "error": (0.25, 0.0, 0.9, 1.0, 5, "!×#"),
     "sleeping": (0.12, 0.15, 0.85, 0.5, 2, "zZ"),
-    "standby": (0.0, 0.12, 0.5, 0.3, 0, ""),
     "dragging": (2.6, 3.2, 0.92, 1.15, 8, "~≈*"),
 }
 
@@ -44,7 +43,7 @@ def draw_construct(painter: QPainter, rect: QRectF, state: str, t: float, primar
                    secondary: QColor, mono_font: QFont, motion: float = 1.0) -> None:
     """Draw the placeholder construct for *state* at time *t* inside *rect*.
 
-    *motion* (0..1) scales the animation speed (effects intensity / quiet mode).
+    *motion* (0..1) scales the animation speed (effects intensity).
     """
     spin, pulse_hz, scale, bright, particles, glyphs = _PARAMS.get(state, _PARAMS["idle"])
     tm = t * (0.25 + 0.75 * motion)
@@ -67,7 +66,7 @@ def draw_construct(painter: QPainter, rect: QRectF, state: str, t: float, primar
     painter.setBrush(halo)
     painter.drawEllipse(center, radius * 0.95, radius * 0.95)
 
-    # orbiting rings (skipped in standby)
+    # orbiting rings
     if spin > 0:
         rings = (
             (radius * 0.80, radius * 0.27, tm * spin * 40.0, primary, 2.0),

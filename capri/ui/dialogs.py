@@ -1,17 +1,14 @@
 """Confirmation dialog and settings window."""
 from __future__ import annotations
 
-from typing import Any
-
 from PySide6.QtCore import QPoint, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QFileDialog, QFormLayout,
                                QHBoxLayout, QLabel, QLineEdit, QPushButton, QSpinBox,
-                               QStackedWidget, QTabWidget, QTextBrowser, QVBoxLayout, QWidget)
+                               QTabWidget, QTextBrowser, QVBoxLayout, QWidget)
 
 from ..config.settings import EFFECT_LEVELS, Settings
 from ..config.theme import Theme
-from ..llm.base import available_backends
 from ..tools.base import ConfirmRequest
 from .markdown import highlight_code
 from .style import blend, css_fonts, paint_glass, pulse, qcolor
@@ -138,22 +135,52 @@ class ConfirmDialog(QDialog):
 
 
 class SettingsDialog(QDialog):
-    """The settings window."""
+    """The settings window: frameless glass panel in the same style as the chat.
+
+    The AI backend, model and API key live in the separate Model window.
+    """
 
     def __init__(self, settings: Settings, theme: Theme, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._settings = settings
         self._theme = theme
-        self._backend_fields: dict[str, dict[str, QLineEdit]] = {}
+        self._drag: QPoint | None = None
         self.setWindowTitle("Capri — Settings")
-        self.setWindowFlag(Qt.WindowStaysOnTopHint, True)
-        self.setMinimumWidth(520)
+        self.setWindowModality(Qt.ApplicationModal)  # before the flags: it resets them
+        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setMinimumWidth(500)
+
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(22, 16, 22, 18)
+        layout.setSpacing(10)
+        header = QHBoxLayout()
+        tag = QLabel("SYSTEM CONFIG")
+        tag.setStyleSheet(f"color: {theme.color('accent')}; "
+                          f"font-family: {css_fonts(theme, 'display')}; "
+                          "font-weight: bold; letter-spacing: 2px;")
+        close = QPushButton("✕")
+        close.setObjectName("flat")
+        close.setToolTip("Close without saving")
+        close.clicked.connect(self.reject)
+        header.addWidget(tag)
+        header.addStretch(1)
+        header.addWidget(close)
+        layout.addLayout(header)
+        title = QLabel("Settings")
+        title.setObjectName("title")
+        layout.addWidget(title)
+
         tabs = QTabWidget()
-        tabs.addTab(self._brain_tab(), "Brain")
-        tabs.addTab(self._body_tab(), "Body")
+        tabs.addTab(self._body_tab(), "Character")
         tabs.addTab(self._tools_tab(), "Tools")
         layout.addWidget(tabs)
+        model_note = QLabel("To change the AI model or an API key, click the model name in "
+                            "the chat header (or AI model… in the menu).")
+        model_note.setObjectName("dim")
+        model_note.setWordWrap(True)
+        layout.addWidget(model_note)
+
         buttons = QHBoxLayout()
         buttons.addStretch(1)
         cancel = QPushButton("Cancel")
@@ -167,62 +194,6 @@ class SettingsDialog(QDialog):
         layout.addLayout(buttons)
 
     # ---------------------------------------------------------------- tabs
-    def _brain_tab(self) -> QWidget:
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        form = QFormLayout()
-        self._backend = QComboBox()
-        self._stack = QStackedWidget()
-        backends = available_backends()
-        for key, cls in backends.items():
-            self._backend.addItem(cls.label, key)
-            stored = self._settings.backend_config(key)
-            sub = QWidget()
-            sub_form = QFormLayout(sub)
-            sub_form.setContentsMargins(0, 8, 0, 0)
-            info = QLabel(cls.help_text)
-            info.setWordWrap(True)
-            info.setObjectName("dim")
-            sub_form.addRow(info)
-            fields: dict[str, QLineEdit] = {}
-            fields["base_url"] = QLineEdit(stored.get("base_url") or cls.default_base_url)
-            fields["model"] = QLineEdit(stored.get("model") or cls.default_model)
-            sub_form.addRow("Base URL", fields["base_url"])
-            sub_form.addRow("Model name", fields["model"])
-            if cls.needs_api_key:
-                key_edit = QLineEdit(stored.get("api_key", ""))
-                key_edit.setEchoMode(QLineEdit.Password)
-                key_edit.setPlaceholderText("paste your API key")
-                show = QCheckBox("Show")
-                show.toggled.connect(
-                    lambda on, e=key_edit: e.setEchoMode(QLineEdit.Normal if on else QLineEdit.Password))
-                row = QHBoxLayout()
-                row.addWidget(key_edit, 1)
-                row.addWidget(show)
-                sub_form.addRow("API key", row)
-                fields["api_key"] = key_edit
-            self._backend_fields[key] = fields
-            self._stack.addWidget(sub)
-        index = max(0, self._backend.findData(self._settings.get("backend", "ollama")))
-        self._backend.setCurrentIndex(index)
-        self._stack.setCurrentIndex(index)
-        self._backend.currentIndexChanged.connect(self._stack.setCurrentIndex)
-        form.addRow("Backend", self._backend)
-        layout.addLayout(form)
-        layout.addWidget(self._stack)
-        hint = QLabel("Local models (Ollama) are fine for chatting, searching, file chores and "
-                      "simple scripts. For complex coding tasks a cloud model is recommended.")
-        hint.setObjectName("hint")
-        hint.setWordWrap(True)
-        layout.addWidget(hint)
-        keys = QLabel("API keys are stored only in your settings file under %APPDATA%\\Capri "
-                      "and are never written to the logs.")
-        keys.setObjectName("dim")
-        keys.setWordWrap(True)
-        layout.addWidget(keys)
-        layout.addStretch(1)
-        return page
-
     def _spin(self, key: str, low: int, high: int, suffix: str = "", step: int = 1) -> QSpinBox:
         box = QSpinBox()
         box.setRange(low, high)
@@ -237,6 +208,7 @@ class SettingsDialog(QDialog):
     def _body_tab(self) -> QWidget:
         page = QWidget()
         form = QFormLayout(page)
+        form.setSpacing(8)
         self._size = self._spin("character_size", 120, 420, " px", 10)
         self._effects = QComboBox()
         for level in EFFECT_LEVELS:
@@ -245,25 +217,21 @@ class SettingsDialog(QDialog):
         self._on_top = QCheckBox("Keep Capri above other windows")
         self._on_top.setChecked(bool(self._settings.get("always_on_top", True)))
         self._sleep = self._spin("sleep_minutes", 1, 240, " min")
-        self._standby = self._spin("standby_minutes", 2, 600, " min")
         self._remarks = QCheckBox("Allow rare spontaneous remarks")
         self._remarks.setChecked(bool(self._settings.get("remarks_enabled", True)))
         self._remark_gap = self._spin("remarks_interval_minutes", 5, 240, " min")
-        self._auto_quiet = QCheckBox("Quiet mode while a fullscreen app or game is in front")
-        self._auto_quiet.setChecked(bool(self._settings.get("auto_quiet_fullscreen", True)))
         form.addRow("Character size", self._size)
         form.addRow("Effects intensity", self._effects)
         form.addRow("", self._on_top)
         form.addRow("Fall asleep after", self._sleep)
-        form.addRow("Standby after", self._standby)
         form.addRow("", self._remarks)
         form.addRow("At most one remark every", self._remark_gap)
-        form.addRow("", self._auto_quiet)
         return page
 
     def _tools_tab(self) -> QWidget:
         page = QWidget()
         form = QFormLayout(page)
+        form.setSpacing(8)
         self._workspace = QLineEdit(str(self._settings.workspace))
         browse = QPushButton("Browse…")
         browse.clicked.connect(self._browse)
@@ -281,26 +249,40 @@ class SettingsDialog(QDialog):
         return page
 
     def _browse(self) -> None:
-        folder = QFileDialog.getExistingDirectory(self, "Choose the script workspace",
-                                                  self._workspace.text())
-        if folder:
-            self._workspace.setText(folder)
+        dialog = QFileDialog(self, "Choose the script workspace", self._workspace.text())
+        dialog.setFileMode(QFileDialog.Directory)
+        dialog.setOption(QFileDialog.ShowDirsOnly, True)
+        dialog.setWindowModality(Qt.ApplicationModal)
+        dialog.setWindowFlag(Qt.WindowStaysOnTopHint, True)
+        if dialog.exec() and dialog.selectedFiles():
+            self._workspace.setText(dialog.selectedFiles()[0])
 
     def _save(self) -> None:
         s = self._settings
-        s.set("backend", self._backend.currentData())
-        for key, fields in self._backend_fields.items():
-            cfg: dict[str, Any] = {name: edit.text().strip() for name, edit in fields.items()}
-            s.set(f"backends.{key}", cfg)
         s.set("character_size", self._size.value())
         s.set("effects_intensity", self._effects.currentData())
         s.set("always_on_top", self._on_top.isChecked())
         s.set("sleep_minutes", self._sleep.value())
-        s.set("standby_minutes", max(self._standby.value(), self._sleep.value() + 1))
         s.set("remarks_enabled", self._remarks.isChecked())
         s.set("remarks_interval_minutes", self._remark_gap.value())
-        s.set("auto_quiet_fullscreen", self._auto_quiet.isChecked())
         s.set("workspace", self._workspace.text().strip())
         s.set("script_timeout", self._timeout.value())
         s.save()
         self.accept()
+
+    # ------------------------------------------------------- look and drag
+    def paintEvent(self, _event) -> None:  # noqa: N802
+        painter = QPainter(self)
+        paint_glass(painter, QRectF(self.rect()), self._theme, alpha=0.97,
+                    border=qcolor(self._theme.color("border")))
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802
+        if event.button() == Qt.LeftButton:
+            self._drag = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+
+    def mouseMoveEvent(self, event) -> None:  # noqa: N802
+        if self._drag is not None and event.buttons() & Qt.LeftButton:
+            self.move(event.globalPosition().toPoint() - self._drag)
+
+    def mouseReleaseEvent(self, _event) -> None:  # noqa: N802
+        self._drag = None
