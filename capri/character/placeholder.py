@@ -25,6 +25,7 @@ _PARAMS: dict[str, tuple[float, float, float, float, int, str]] = {
     "error": (0.25, 0.0, 0.9, 1.0, 5, "!×#"),
     "sleeping": (0.12, 0.15, 0.85, 0.5, 2, "zZ"),
     "dragging": (2.6, 3.2, 0.92, 1.15, 8, "~≈*"),
+    "pointing": (1.6, 1.6, 1.08, 1.25, 6, "»>▸"),
 }
 
 

@@ -30,7 +30,8 @@
     "error": "#FF3030",
     "sleeping": "#6A3FA8",
     "peek": "#FF1450",
-    "dragging": "#FF8DB4"
+    "dragging": "#FF8DB4",
+    "pointing": "#12F56C"
   },
   "mood_tints": {
     "bored": "#6A3FA8",
@@ -101,5 +102,12 @@
     "class": "#FF8DB4",
     "operator": "#C77DFF",
     "builtin": "#C77DFF"
+  },
+  "pointer": {
+    "duration": 6.0,
+    "beam_jitter": 9.0,
+    "beam_width": 2.5,
+    "glow_width": 9.0,
+    "packets": 4
   }
 }

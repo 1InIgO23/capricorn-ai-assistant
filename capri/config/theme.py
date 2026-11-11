@@ -44,6 +44,14 @@ DEFAULT_THEME: dict[str, Any] = {
         "sleeping": "#6A3FA8",
         "peek": "#FF1450",
         "dragging": "#FF8DB4",
+        "pointing": "#12F56C",
+    },
+    "pointer": {
+        "duration": 6.0,
+        "beam_jitter": 9.0,
+        "beam_width": 2.5,
+        "glow_width": 9.0,
+        "packets": 4,
     },
     "mood_tints": {
         "bored": "#6A3FA8",
@@ -143,6 +151,10 @@ class Theme:
     def syntax(self, name: str) -> str:
         """Hex color for a syntax highlighting role."""
         return self.data["syntax"].get(name) or self.color("text")
+
+    def pointer(self, name: str, default: Any = None) -> Any:
+        """A parameter of the window-pointing beam."""
+        return (self.data.get("pointer") or {}).get(name, default)
 
     def fx(self, name: str, default: Any = None) -> Any:
         """An effect parameter."""

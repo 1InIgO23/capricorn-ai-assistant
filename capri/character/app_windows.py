@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import sys
+from dataclasses import dataclass
 
 from PySide6.QtGui import QGuiApplication
 
@@ -108,11 +110,103 @@ if sys.platform == "win32":
         _user32.GetClassNameW(hwnd, name, 256)
         return name.value not in _IGNORED_CLASSES
 
+    _kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    _kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    _kernel32.OpenProcess.restype = wintypes.HANDLE
+    _kernel32.QueryFullProcessImageNameW.argtypes = [wintypes.HANDLE, wintypes.DWORD,
+                                                     wintypes.LPWSTR,
+                                                     ctypes.POINTER(wintypes.DWORD)]
+    _kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+
+    def _process_name(hwnd: int) -> str:
+        """Executable name of the window's process, e.g. ``chrome``."""
+        pid = wintypes.DWORD()
+        _user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        handle = _kernel32.OpenProcess(0x1000, False, pid.value)  # QUERY_LIMITED_INFORMATION
+        if not handle:
+            return ""
+        try:
+            size = wintypes.DWORD(520)
+            buffer = ctypes.create_unicode_buffer(size.value)
+            if _kernel32.QueryFullProcessImageNameW(handle, 0, buffer, ctypes.byref(size)):
+                return os.path.splitext(os.path.basename(buffer.value))[0]
+            return ""
+        finally:
+            _kernel32.CloseHandle(handle)
+
     def _title(hwnd: int) -> str:
         length = _user32.GetWindowTextLengthW(hwnd)
         buffer = ctypes.create_unicode_buffer(length + 1)
         _user32.GetWindowTextW(hwnd, buffer, length + 1)
         return buffer.value
+
+
+@dataclass(frozen=True)
+class WindowInfo:
+    """Title and program of an open window (no geometry, no Qt: safe in any thread)."""
+
+    handle: int
+    title: str
+    process: str
+
+
+def enumerate_titles() -> list[WindowInfo]:
+    """Open windows of other applications, topmost first. Thread-safe (no Qt calls)."""
+    if sys.platform != "win32":
+        return []
+    found: list[WindowInfo] = []
+    try:
+        def callback(hwnd: int, _param: int) -> bool:
+            if _usable(hwnd):
+                title = _title(hwnd)
+                if title:
+                    found.append(WindowInfo(int(hwnd), title, _process_name(hwnd)))
+            return True
+
+        _user32.EnumWindows(_EnumProc(callback), 0)
+    except Exception:
+        log.debug("Window title enumeration failed", exc_info=True)
+        return []
+    return found
+
+
+def _words(text: str) -> list[str]:
+    return [w for w in re.split(r"[^\w]+", text.lower()) if w]
+
+
+def match_window(query: str, windows: list[WindowInfo]) -> WindowInfo | None:
+    """Best window for a loose description such as ``"chrome"`` or ``"the excel file"``.
+
+    Scores: exact title > title or program starts with the query > title or
+    program contains it > all query words appear. Ties go to the topmost window.
+    """
+    q = " ".join(_words(query))
+    if not q:
+        return None
+    stop = {"the", "a", "an", "window", "app", "application", "program", "my", "open"}
+    words = [w for w in q.split() if w not in stop] or q.split()
+    best: tuple[int, int] | None = None
+    choice = None
+    for rank, window in enumerate(windows):
+        title = " ".join(_words(window.title))
+        process = window.process.lower()
+        haystack = f"{title} {process}"
+        if title == q:
+            score = 100
+        elif title.startswith(q) or process == q or process.startswith(q):
+            score = 80
+        elif q in title or q in process:
+            score = 60
+        elif all(w in haystack for w in words):
+            score = 40 + min(10, len(words))
+        elif any(len(w) > 2 and w in haystack for w in words):
+            score = 10 + sum(1 for w in words if w in haystack)
+        else:
+            continue
+        key = (score, -rank)
+        if best is None or key > best:
+            best, choice = key, window
+    return choice
 
 
 def list_windows() -> list[AppWindow]:

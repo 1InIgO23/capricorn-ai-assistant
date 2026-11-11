@@ -89,6 +89,9 @@ class CharacterWindow(QWidget):
         self._hovered = False
         self._last_hover = 0.0
         self._shake_until = 0.0
+        self._pointing_until = 0.0
+        self._point_target: QPoint | None = None
+        self._paint_center = QPointF(0, 0)
         # effects
         self._glitch_until = 0.0
         self._burst_until = 0.0
@@ -301,6 +304,42 @@ class CharacterWindow(QWidget):
         elif kind == "happy":
             self._happy_until = now + 2.2
 
+    # ------------------------------------------------------------- pointing
+    @property
+    def pointing(self) -> bool:
+        return time.monotonic() < self._pointing_until
+
+    def start_pointing(self, target: QPoint, seconds: float) -> None:
+        """Hold the pointing pose for *seconds*, facing the global point *target*."""
+        self.wake()
+        self._point_target = QPoint(target)
+        self._pointing_until = time.monotonic() + seconds
+        self._face_target = 1.0 if target.x() >= self.char_rect_global().center().x() else -1.0
+
+    def update_point_target(self, target: QPoint) -> None:
+        self._point_target = QPoint(target)
+
+    def stop_pointing(self) -> None:
+        self._pointing_until = 0.0
+        self._point_target = None
+
+    def hand_point(self) -> QPointF:
+        """Global position the pointing beam starts from (her hand)."""
+        center = QPointF(self.x() + self._paint_center.x(), self.y() + self._paint_center.y())
+        face = 1.0 if self._face >= 0 else -1.0
+        if self.sprites.frame("pointing", 0.0) is not None:
+            hx, hy = self.sprites.index.hand
+            return QPointF(center.x() + (hx - 0.5) * self.S * face,
+                           center.y() + (hy - 0.5) * self.S)
+        # placeholder: the edge of the core, on the side of the target
+        target = self._point_target
+        if target is None:
+            return QPointF(center.x() + face * self.S * 0.24, center.y())
+        dx, dy = target.x() - center.x(), target.y() - center.y()
+        length = math.hypot(dx, dy) or 1.0
+        return QPointF(center.x() + dx / length * self.S * 0.26,
+                       center.y() + dy / length * self.S * 0.26)
+
     def glitch_burst(self, seconds: float = 0.35) -> None:
         self._burst_until = time.monotonic() + seconds
 
@@ -358,6 +397,8 @@ class CharacterWindow(QWidget):
             return "error"
         if self._alert:
             return "alert"
+        if now < self._pointing_until:
+            return "pointing"
         if self._activity:
             return self._activity
         if now < self._happy_until:
@@ -382,7 +423,8 @@ class CharacterWindow(QWidget):
         return base
 
     def _busy(self) -> bool:
-        return bool(self._activity or self._alert or self._rerender)
+        return bool(self._activity or self._alert or self._rerender
+                    or time.monotonic() < self._pointing_until)
 
     # ----------------------------------------------------------------- tick
     def _tick(self) -> None:
@@ -412,7 +454,9 @@ class CharacterWindow(QWidget):
         center = rect.center()
         dx, dy = cursor.x() - center.x(), cursor.y() - center.y()
         tilt_target = 0.0
-        if not self.asleep and math.hypot(dx, dy) < radius:
+        if now < self._pointing_until and self._point_target is not None:
+            self._face_target = 1.0 if self._point_target.x() >= center.x() else -1.0
+        elif not self.asleep and math.hypot(dx, dy) < radius:
             if abs(dx) > 12:
                 self._face_target = 1.0 if dx > 0 else -1.0
             tilt_target = (max(-1.0, min(1.0, dy / radius))
@@ -677,6 +721,7 @@ class CharacterWindow(QWidget):
             self._dragging = True
             self.wake()
             self.clear_dock()
+            self.stop_pointing()
             self._rerender = None
             self.interaction.emit("drag")
         if self._dragging:
@@ -834,6 +879,7 @@ class CharacterWindow(QWidget):
             shake = math.sin(now * 60) * 5 * (self._shake_until - now) / 0.5
         cx = self.char_rect.center().x() + shake
         cy = self.char_rect.center().y() + bob
+        self._paint_center = QPointF(cx, cy)
 
         opacity = 1.0
         if self._night() and not self._busy():

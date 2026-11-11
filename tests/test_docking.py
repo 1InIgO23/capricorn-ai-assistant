@@ -67,3 +67,32 @@ def test_following_a_moved_window() -> None:
     target = DockTarget("window", "right", Rect(100, 100, 500, 500), along=50, handle=1)
     moved = target.with_rect(Rect(300, 200, 500, 500))
     assert dock_position(moved, S, hidden=True) == (700, 250)
+
+
+def test_match_window_by_title_or_program() -> None:
+    from capri.character.app_windows import WindowInfo, match_window
+
+    windows = [WindowInfo(1, "report.xlsx - Excel", "EXCEL"),
+               WindowInfo(2, "Python docs - Google Chrome", "chrome"),
+               WindowInfo(3, "Downloads", "explorer"),
+               WindowInfo(4, "New Tab - Google Chrome", "chrome")]
+    assert match_window("chrome", windows).handle == 2          # topmost of two matches
+    assert match_window("the excel window", windows).handle == 1
+    assert match_window("Downloads", windows).handle == 3       # exact title
+    assert match_window("new tab", windows).handle == 4
+    assert match_window("explorer", windows).handle == 3        # by program name
+    assert match_window("spotify", windows) is None
+    assert match_window("", windows) is None
+
+
+def test_pointing_hand_config(tmp_path) -> None:
+    import json
+    from capri.character.assets import DEFAULT_HAND, scan_assets
+
+    assert scan_assets(tmp_path).hand == DEFAULT_HAND
+    (tmp_path / "animation.json").write_text(json.dumps(
+        {"states": {"pointing": {"fps": 8, "hand": [0.9, 0.3]}}}))
+    assert scan_assets(tmp_path).hand == (0.9, 0.3)
+    (tmp_path / "animation.json").write_text(json.dumps(
+        {"states": {"pointing": {"hand": [2, -1]}}}))
+    assert scan_assets(tmp_path).hand == DEFAULT_HAND

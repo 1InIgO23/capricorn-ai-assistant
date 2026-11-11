@@ -12,6 +12,13 @@
     },
     "dragging": {
       "fps": 6
+    },
+    "pointing": {
+      "fps": 8,
+      "hand": [
+        0.82,
+        0.4
+      ]
     }
   }
 }

@@ -9,7 +9,7 @@ import sys
 import time
 from pathlib import Path
 
-from PySide6.QtCore import QLockFile, QObject, QPoint, QStandardPaths, Qt, QTimer, QUrl
+from PySide6.QtCore import QLockFile, QObject, QPoint, QRect, QStandardPaths, Qt, QTimer, QUrl
 from PySide6.QtGui import QAction, QColor, QDesktopServices, QIcon, QPainter, QPixmap, QPolygonF
 from PySide6.QtCore import QPointF
 from PySide6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon
@@ -32,6 +32,8 @@ from .tools.base import ConfirmRequest, ToolResult
 from .ui.chat import ChatContent, DetachedWindow, HoloPanel
 from .ui.dialogs import ConfirmDialog, SettingsDialog
 from .ui.model_dialog import ModelDialog
+from .ui.pointer import PointerOverlay
+from .character import app_windows
 from .ui.style import build_stylesheet
 
 log = logging.getLogger(__name__)
@@ -88,6 +90,7 @@ class CapriApp(QObject):
                                      int(self.settings.get("character_size", 220)))
         self.character = CharacterWindow(self.settings, self.theme, self.sprites, self.mood)
         self.bubble = SpeechBubble(self.theme)
+        self.pointer = PointerOverlay(self.theme, self.character)
 
         self.store = ConversationStore(paths.conversations_dir())
         self.registry = build_registry()
@@ -476,7 +479,20 @@ class CapriApp(QObject):
         else:
             self.character.set_activity("thinking", "WORKING")
 
+    def point_at(self, handle: int, title: str) -> None:
+        """Point at another application's window with the neural tether."""
+        rect = app_windows.window_rect(int(handle))
+        if rect is None:
+            log.info("Can't point at '%s': window not visible", title)
+            return
+        target = QRect(rect.left, rect.top, rect.width, rect.height)
+        self.character.start_pointing(target.center(), self.pointer.duration)
+        self.character.set_hud(f"TARGET · {title[:40]}", hold=self.pointer.duration)
+        self.pointer.start(int(handle), title, target)
+
     def _on_tool_progress(self, call_id: str, info: dict) -> None:
+        if info.get("point"):
+            self.point_at(int(info["point"]), str(info.get("title", "")))
         if info.get("domain"):
             self.character.add_ticker(str(info["domain"]))
         if info.get("hud"):

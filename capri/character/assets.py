@@ -19,7 +19,7 @@ log = logging.getLogger(__name__)
 
 STATES: tuple[str, ...] = (
     "idle", "blink", "happy", "talking", "thinking", "searching", "files",
-    "coding", "alert", "error", "sleeping", "peek", "dragging",
+    "coding", "alert", "error", "sleeping", "peek", "dragging", "pointing",
 )
 
 #: For each state, the states whose images are tried next (in order) when the
@@ -39,7 +39,12 @@ FALLBACKS: dict[str, tuple[str, ...]] = {
     "sleeping": ("idle",),
     "peek": ("idle",),
     "dragging": ("idle",),
+    "pointing": ("idle",),
 }
+
+#: Where Capri's pointing hand is inside ``pointing`` images (fractions of the image,
+#: character facing right). The beam starts there. Override in animation.json.
+DEFAULT_HAND = (0.82, 0.40)
 
 DEFAULT_FPS = 8.0
 _NAME_RE = re.compile(r"^([a-z]+)(?:_(\d+))?\.png$")
@@ -63,6 +68,7 @@ class AssetIndex:
     fps: dict[str, float] = field(default_factory=dict)
     default_fps: float = DEFAULT_FPS
     ignored: list[str] = field(default_factory=list)
+    hand: tuple[float, float] = DEFAULT_HAND
 
     def has_own(self, state: str) -> bool:
         """True if *state* has its own image(s), ignoring fallbacks."""
@@ -124,11 +130,26 @@ def load_animation_config(directory: Path) -> tuple[float, dict[str, float]]:
     return default_fps, per_state
 
 
+def load_pointing_hand(directory: Path) -> tuple[float, float]:
+    """Read ``"pointing": {"hand": [x, y]}`` from animation.json (fractions 0..1)."""
+    path = Path(directory) / "animation.json"
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        hand = ((raw.get("states") or {}).get("pointing") or {}).get("hand")
+        if (isinstance(hand, (list, tuple)) and len(hand) == 2
+                and all(isinstance(v, (int, float)) and 0 <= v <= 1 for v in hand)):
+            return float(hand[0]), float(hand[1])
+    except (OSError, ValueError, AttributeError):
+        pass
+    return DEFAULT_HAND
+
+
 def scan_assets(directory: Path) -> AssetIndex:
     """Scan *directory* and build the index of available state images."""
     directory = Path(directory)
     index = AssetIndex(directory=directory)
     index.default_fps, index.fps = load_animation_config(directory)
+    index.hand = load_pointing_hand(directory)
     if not directory.is_dir():
         return index
 

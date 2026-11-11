@@ -21,6 +21,7 @@ Trigger or Netflix. All rights to the character belong to their respective owner
 - Moods and sleep (dimmer and sleepier at night)
 - Chat panel with streaming answers, code highlighting and saved conversations
 - Web search with sources, file management, Python / PowerShell / batch scripts
+- Points at any open window with a "neural tether" beam and a target lock
 - Local models through Ollama, or cloud models (OpenAI-compatible APIs, Anthropic)
 - Every change to your files and every script needs your confirmation; deleted files go
   to the Recycle Bin; system folders are off limits
@@ -57,7 +58,7 @@ If activation is blocked, run `Set-ExecutionPolicy -Scope CurrentUser RemoteSign
 
 Example requests: *"What's new in Python 3.13? Give me sources."*, *"Move the screenshots
 on my Desktop into a folder called Screenshots."*, *"Write a script that renames every
-.jpeg in Pictures\Trip to .jpg and run it."*
+.jpeg in Pictures\Trip to .jpg and run it."*, *"Where is my Excel window? Point at it."*
 
 **AI model:** open the model window from the chat header. Ollama is the default and needs no
 key. For cloud models, pick *OpenAI-compatible API* or *Anthropic API* and paste your key.
@@ -89,9 +90,12 @@ Without images, an abstract placeholder is drawn.
 | `sleeping.png` | Asleep | `idle` |
 | `peek.png` | Docked at a screen or window edge | `idle` |
 | `dragging_1.png`, `dragging_2.png` | While you drag her (2-frame animation) | `idle` |
+| `pointing.png` | Pointing at a window (draw her pointing to the right) | `idle` |
 
 For animations, use numbered frames instead (`idle_1.png`, `idle_2.png`, …). Frame rates can
-be set in `assets/character/animation.json` (see `animation.example.json`). The app icon is
+be set in `assets/character/animation.json` (see `animation.example.json`). There you can also
+set where her pointing hand is in `pointing.png`, so the beam starts exactly at it:
+`"pointing": {"hand": [0.82, 0.40]}` (fractions of the image width and height). The app icon is
 `assets/icon.ico`.
 
 Colors, fonts and effect settings live in `assets/theme.json`. Main palette: `#08080D` ink

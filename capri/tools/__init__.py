@@ -10,11 +10,12 @@ __all__ = ["ConfirmRequest", "Tool", "ToolContext", "ToolRegistry", "ToolResult"
 
 def build_registry() -> ToolRegistry:
     """Create the registry with every built-in tool."""
+    from .desktop import desktop_tools
     from .files import file_tools
     from .scripts import script_tools
     from .web import web_tools
 
     registry = ToolRegistry()
-    for tool in (*web_tools(), *file_tools(), *script_tools()):
+    for tool in (*web_tools(), *file_tools(), *script_tools(), *desktop_tools()):
         registry.register(tool)
     return registry
