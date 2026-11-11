@@ -25,7 +25,8 @@ from ..config.settings import Settings
 from ..config.theme import Theme
 from ..ui.style import blend, pulse, qcolor, qfont
 from . import app_windows
-from .docking import DockTarget, Rect, dock_position, find_dock, window_edges
+from .docking import (DockTarget, Rect, dock_obstructed, dock_position, find_dock,
+                      window_edges)
 from .mood import MoodEngine
 from .placeholder import draw_construct
 from .sprites import SpriteLibrary
@@ -631,7 +632,7 @@ class CharacterWindow(QWidget):
         if self._dragging or self._rerender:
             return
         rect = app_windows.window_rect(dock.handle)
-        if rect == dock.rect:
+        if rect == dock.rect and not self._peek_hidden:
             return
         if not self._peek_hidden:
             # She is standing fully outside (hovered, chat open, busy...): the window
@@ -640,15 +641,24 @@ class CharacterWindow(QWidget):
             self.clear_dock()
             return
         if rect is None:  # closed, minimized or hidden: re-render fully visible beside it
-            shown = self.dock_shown_pos()
-            self.clear_dock()
-            screen = self.current_screen_rect()
-            shown.setX(max(screen.left(), min(shown.x(), screen.right() - self.S)))
-            shown.setY(max(screen.top(), min(shown.y(), screen.bottom() - self.S)))
-            self.rerender_to(shown)
+            self._step_out()
             return
-        self._dock = dock.with_rect(rect)  # peeking: follow the window
-        self._apply_peek(True, burst=False)
+        if rect != dock.rect:
+            self._dock = dock.with_rect(rect)  # peeking: follow the window
+            self._apply_peek(True, burst=False)
+        if dock_obstructed(self._dock, _rect(self.char_rect_global()), app_windows.list_windows()):
+            # another window came up over her spot: step out instead of being cut in half
+            log.info("Window above '%s' covers Capri; stepping out.", dock.title[:60])
+            self._step_out()
+
+    def _step_out(self) -> None:
+        """Leave a window dock: re-render fully visible beside where she peeked."""
+        shown = self.dock_shown_pos()
+        self.clear_dock()
+        screen = self.current_screen_rect()
+        shown.setX(max(screen.left(), min(shown.x(), screen.right() - self.S)))
+        shown.setY(max(screen.top(), min(shown.y(), screen.bottom() - self.S)))
+        self.rerender_to(shown)
 
     def _update_dock(self, now: float) -> None:
         if not self._dock or self._dragging or self._rerender:

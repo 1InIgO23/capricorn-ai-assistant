@@ -186,3 +186,18 @@ def find_dock(char: Rect, screen: Rect, windows: list[AppWindow], *,
             if _edge_visible(index, windows, px, py) and _fits(target, size, screen):
                 return target
     return None
+
+
+def dock_obstructed(target: DockTarget, char: Rect, windows: list[AppWindow]) -> bool:
+    """True when a window *above* the docked one now overlaps Capri's square.
+
+    Then she would look cut in half over the wrong window, so she must step out.
+    *windows* is topmost first. A docked window missing from the list (hidden,
+    cloaked) also counts as obstructed.
+    """
+    for window in windows:
+        if window.handle == target.handle:
+            return False
+        if window.rect.intersects(char):
+            return True
+    return True

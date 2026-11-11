@@ -96,3 +96,18 @@ def test_pointing_hand_config(tmp_path) -> None:
     (tmp_path / "animation.json").write_text(json.dumps(
         {"states": {"pointing": {"hand": [2, -1]}}}))
     assert scan_assets(tmp_path).hand == DEFAULT_HAND
+
+
+def test_dock_obstructed_by_a_window_on_top() -> None:
+    from capri.character.docking import dock_obstructed
+
+    docked = AppWindow(1, "Editor", Rect(800, 100, 700, 700))
+    target = DockTarget("window", "left", docked.rect, 200, handle=1)
+    capri = Rect(700, 300, S, S)  # half behind the editor
+    assert not dock_obstructed(target, capri, [docked])
+    elsewhere = AppWindow(2, "Music", Rect(0, 0, 300, 300))
+    assert not dock_obstructed(target, capri, [elsewhere, docked])
+    covering = AppWindow(3, "Chat", Rect(600, 0, 500, 900))  # opened over her spot
+    assert dock_obstructed(target, capri, [covering, docked])
+    assert not dock_obstructed(target, capri, [docked, covering])  # it is below: fine
+    assert dock_obstructed(target, capri, [elsewhere])  # docked window gone from the list

@@ -8,6 +8,10 @@ with you, searches the web, manages your files and writes and runs simple script
 
 ![Capri running a web search](docs/screenshots/searching.png)
 
+![Capri peeking from behind a window](docs/screenshots/peeking.png)
+
+![Capri pointing at a window](docs/screenshots/pointing.png)
+
 ## Disclaimer
 
 Capri is a character from *Cyberpunk: Edgerunners*. This is a non-commercial, unofficial fan
