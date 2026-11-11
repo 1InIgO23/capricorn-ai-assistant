@@ -9,7 +9,7 @@ import requests
 
 from ..base import (BackendError, LLMBackend, Message, StreamEvent, ToolCall, ToolSpec,
                     ToolsNotSupported, register_backend)
-from ._http import error_text, post_stream
+from ._http import error_text, get_json, post_stream
 
 
 @register_backend
@@ -35,6 +35,11 @@ class OllamaBackend(LLMBackend):
                 {"function": {"name": c.name, "arguments": c.arguments}} for c in message.tool_calls
             ]
         return out
+
+    def list_models(self) -> list[str]:
+        data = get_json(f"{self.base_url}/api/tags", {},
+                        unreachable=f"I can't reach Ollama at {self.base_url}. Is it running?")
+        return sorted(str(m.get("name")) for m in data.get("models") or [] if m.get("name"))
 
     def stream_chat(self, messages: list[Message], tools: list[ToolSpec] | None,
                     cancel: threading.Event) -> Iterator[StreamEvent]:

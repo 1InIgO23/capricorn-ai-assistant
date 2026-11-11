@@ -48,16 +48,18 @@ If activation is blocked, run `Set-ExecutionPolicy -Scope CurrentUser RemoteSign
 | Open / close the chat | Left-click Capri or the tray icon |
 | Move Capri | Drag her. Drop her at a screen edge to dock her there, half hidden |
 | Move the chat | Drag its title bar. It then stays where you put it; double-click the title to send it back next to Capri |
+| Change the AI model / API key | Click the model name in the chat header (e.g. `local · qwen2.5:7b ▾`), or *AI model…* in the menu |
 | Detach the chat | `⧉` button (normal resizable window) |
 | Conversations | `☰` button: new, rename, delete, reopen |
-| Menu | Right-click Capri or the tray icon: chat, quiet mode, settings, reload assets, quit |
+| Menu | Right-click Capri or the tray icon: chat, quiet mode, AI model, settings, reload assets, quit |
 
 Example requests: *"What's new in Python 3.13? Give me sources."*, *"Move the screenshots
 on my Desktop into a folder called Screenshots."*, *"Write a script that renames every
 .jpeg in Pictures\Trip to .jpg and run it."*
 
-**Backends** (*Settings → Brain*): Ollama is the default and needs no key. For cloud models,
-pick *OpenAI-compatible API* or *Anthropic API* and paste your key. Local models are fine for
+**AI model:** open the model window from the chat header. Ollama is the default and needs no
+key. For cloud models, pick *OpenAI-compatible API* or *Anthropic API* and paste your key.
+*Fetch* lists the available models and *Test connection* checks that everything works. Local models are fine for
 simple tasks and scripts; a cloud model is recommended for complex coding.
 
 **Where things are stored:** settings and API keys in `%APPDATA%\Capri\settings.json`,

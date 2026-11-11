@@ -6,7 +6,7 @@ from typing import Any, Iterator
 
 from ..base import (BackendError, LLMBackend, Message, StreamEvent, ToolCall, ToolSpec,
                     register_backend)
-from ._http import error_text, iter_sse, loads, post_stream
+from ._http import error_text, get_json, iter_sse, loads, post_stream
 
 API_VERSION = "2023-06-01"
 MAX_TOKENS = 8192
@@ -60,6 +60,12 @@ class AnthropicBackend(LLMBackend):
             else:
                 out.append({"role": role, "content": blocks})
         return "\n\n".join(system_parts), out
+
+    def list_models(self) -> list[str]:
+        headers = {"x-api-key": self.api_key, "anthropic-version": API_VERSION}
+        data = get_json(f"{self.base_url}/v1/models?limit=100", headers,
+                        unreachable="I can't reach the Anthropic API. Check your connection.")
+        return [str(m.get("id")) for m in data.get("data") or [] if m.get("id")]
 
     def stream_chat(self, messages: list[Message], tools: list[ToolSpec] | None,
                     cancel: threading.Event) -> Iterator[StreamEvent]:

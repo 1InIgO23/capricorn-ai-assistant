@@ -7,7 +7,7 @@ from typing import Any, Iterator
 
 from ..base import (BackendError, LLMBackend, Message, StreamEvent, ToolCall, ToolSpec,
                     ToolsNotSupported, register_backend)
-from ._http import error_text, iter_sse, loads, post_stream
+from ._http import error_text, get_json, iter_sse, loads, post_stream
 
 
 @register_backend
@@ -36,6 +36,12 @@ class OpenAICompatBackend(LLMBackend):
                 for c in message.tool_calls
             ]
         return out
+
+    def list_models(self) -> list[str]:
+        headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
+        data = get_json(f"{self.base_url}/models", headers,
+                        unreachable=f"I can't reach {self.base_url}. Check the base URL.")
+        return sorted(str(m.get("id")) for m in data.get("data") or [] if m.get("id"))
 
     def stream_chat(self, messages: list[Message], tools: list[ToolSpec] | None,
                     cancel: threading.Event) -> Iterator[StreamEvent]:

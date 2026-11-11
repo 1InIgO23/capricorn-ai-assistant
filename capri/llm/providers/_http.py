@@ -30,6 +30,24 @@ def post_stream(url: str, headers: dict[str, str], payload: dict[str, Any],
         raise BackendError(f"Request failed: {type(exc).__name__}") from exc
 
 
+def get_json(url: str, headers: dict[str, str], unreachable: str) -> dict[str, Any]:
+    """GET a JSON document; network and HTTP problems become :class:`BackendError`."""
+    try:
+        response = requests.get(url, headers=headers, timeout=(CONNECT_TIMEOUT, 20))
+    except requests.exceptions.RequestException as exc:
+        raise BackendError(unreachable) from exc
+    if response.status_code in (401, 403):
+        raise BackendError("The API key was rejected.")
+    if response.status_code != 200:
+        raise BackendError(f"The server answered with an error ({response.status_code}): "
+                           f"{error_text(response)}")
+    try:
+        data = response.json()
+    except ValueError as exc:
+        raise BackendError("The server did not send a valid model list.") from exc
+    return data if isinstance(data, dict) else {}
+
+
 def error_text(response: requests.Response) -> str:
     """Best-effort extraction of an error message from a failed response."""
     try:

@@ -124,6 +124,16 @@ class LLMBackend(ABC):
         raise :class:`BackendError` with a friendly message on failure.
         """
 
+    def list_models(self) -> list[str]:
+        """Names of the models this backend offers (used by the Model window).
+
+        Also serves as a cheap connection test: it must raise
+        :class:`BackendError` with a friendly message when the server is
+        unreachable or the API key is rejected. Providers that cannot list
+        models may return an empty list.
+        """
+        return []
+
 
 _REGISTRY: dict[str, type[LLMBackend]] = {}
 

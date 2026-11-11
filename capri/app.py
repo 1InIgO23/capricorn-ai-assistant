@@ -32,6 +32,7 @@ from .tools import ToolContext, build_registry, default_policy
 from .tools.base import ConfirmRequest, ToolResult
 from .ui.chat import ChatContent, DetachedWindow, HoloPanel
 from .ui.dialogs import ConfirmDialog, SettingsDialog
+from .ui.model_dialog import ModelDialog
 from .ui.style import build_stylesheet
 
 log = logging.getLogger(__name__)
@@ -161,6 +162,8 @@ class CapriApp(QObject):
         self.act_quiet.setCheckable(True)
         self.act_quiet.setChecked(bool(self.settings.get("quiet_mode", False)))
         self.act_quiet.toggled.connect(self._toggle_quiet)
+        act_model = QAction("AI model…", self.menu)
+        act_model.triggered.connect(self.open_model_dialog)
         act_settings = QAction("Settings…", self.menu)
         act_settings.triggered.connect(self.open_settings)
         act_reload = QAction("Reload assets", self.menu)
@@ -173,6 +176,7 @@ class CapriApp(QObject):
         self.menu.addAction(self.act_chat)
         self.menu.addAction(self.act_quiet)
         self.menu.addSeparator()
+        self.menu.addAction(act_model)
         self.menu.addAction(act_settings)
         self.menu.addAction(act_reload)
         self.menu.addAction(act_folder)
@@ -210,6 +214,7 @@ class CapriApp(QObject):
         c.new_conversation_requested.connect(self._new_conversation)
         c.rename_requested.connect(self._rename_conversation)
         c.delete_requested.connect(self._delete_conversation)
+        c.model_requested.connect(self.open_model_dialog)
         self.detached.closed.connect(self._detached_closed)
         self.holo.snap_back_requested.connect(self._snap_chat_back)
 
@@ -644,6 +649,30 @@ class CapriApp(QObject):
             self._refresh_backend_info()
             self._apply_quiet()
             log.info("Settings saved. Backend: %s", self.settings.get("backend"))
+
+    def open_model_dialog(self) -> None:
+        """Open the Model window; changes apply from the next message."""
+        dialog = ModelDialog(self.settings, self.theme)
+        dialog.setWindowIcon(self.icon)
+        anchor = self.holo.geometry() if self.holo.isVisible() else \
+            self.character.char_rect_global()
+        dialog.adjustSize()
+        screen = self.character.current_screen_rect()
+        x = anchor.center().x() - dialog.width() // 2
+        y = anchor.center().y() - dialog.height() // 2
+        dialog.move(max(screen.left() + 8, min(x, screen.right() - dialog.width() - 8)),
+                    max(screen.top() + 8, min(y, screen.bottom() - dialog.height() - 8)))
+        if dialog.exec():
+            for secret in self.settings.secrets():
+                register_secret(secret)
+            self._refresh_backend_info()
+            key = str(self.settings.get("backend"))
+            model = self.settings.backend_config(key).get("model", "")
+            log.info("AI model changed: %s / %s", key, model)
+            self._bubble(f"New brain online: {model}.", timeout=4000, force=True)
+            if self.run is not None:
+                self.content.add_notice("The new model will be used from your next message.",
+                                        "notice")
 
     def reload_assets(self) -> None:
         self.character.reload_assets()

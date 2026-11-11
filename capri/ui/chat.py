@@ -66,6 +66,7 @@ class ChatContent(QWidget):
     new_conversation_requested = Signal()
     rename_requested = Signal(str, str)
     delete_requested = Signal(str)
+    model_requested = Signal()
 
     def __init__(self, theme: Theme, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -129,8 +130,11 @@ class ChatContent(QWidget):
         self._title = QLabel("CAPRI")
         self._title.setObjectName("title")
         self._title.setToolTip("Drag to move the chat. Double-click to put it back next to Capri.")
-        self._badge = QLabel("")
-        self._badge.setObjectName("dim")
+        self._badge = QPushButton("")
+        self._badge.setObjectName("flat")
+        self._badge.setCursor(Qt.PointingHandCursor)
+        self._badge.setToolTip("Change the AI model or set an API key")
+        self._badge.clicked.connect(self.model_requested)
         self._detach_button = self._flat("⧉", "Detach into a normal window")
         self._detach_button.clicked.connect(self.detach_requested)
         close_button = self._flat("✕", "Close the chat")
@@ -181,7 +185,7 @@ class ChatContent(QWidget):
 
     def drag_handles(self) -> list[QWidget]:
         """Widgets that can be used to drag the panel around (the title bar)."""
-        return [self._title, self._badge]
+        return [self._title]
 
     def _flat(self, text: str, tip: str) -> QPushButton:
         button = QPushButton(text)
@@ -217,7 +221,7 @@ class ChatContent(QWidget):
 
     def set_backend_info(self, badge: str, hint: str) -> None:
         """Show the active model and the local/cloud capability hint."""
-        self._badge.setText(badge)
+        self._badge.setText(f"{badge}  ▾")
         self._hint.setText(hint)
         self._hint.setVisible(bool(hint))
 
