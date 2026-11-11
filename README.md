@@ -122,6 +122,6 @@ tests/             unit tests (python -m pytest)
 
 ## AI Disclousure
 
-This software, including its source code and documentation, was made with the assistance by
+This software, including its source code and documentation, was made with the assistance of
 Claude Fable 5.2 and Claude Opus 5.5, artificial intelligence models developed by Anthropic. 
 The character images were made with the assistance of ChatGPT by OpenAI.
