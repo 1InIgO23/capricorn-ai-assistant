@@ -211,6 +211,7 @@ class CapriApp(QObject):
         c.rename_requested.connect(self._rename_conversation)
         c.delete_requested.connect(self._delete_conversation)
         self.detached.closed.connect(self._detached_closed)
+        self.holo.snap_back_requested.connect(self._snap_chat_back)
 
     # ------------------------------------------------------------------ chat
     def chat_visible(self) -> bool:
@@ -242,8 +243,11 @@ class CapriApp(QObject):
     def _unfold(self) -> None:
         if self._detached or self.holo.isVisible():
             return
-        self.holo.place_beside(self.character.char_rect_global(),
-                               self.character.current_screen_rect())
+        if self.holo.user_placed:
+            self.holo.keep_on_screen()
+        else:
+            self.holo.place_beside(self.character.char_rect_global(),
+                                   self.character.current_screen_rect())
         self.holo.unfold()
         self.content.focus_input()
 
@@ -277,8 +281,14 @@ class CapriApp(QObject):
             self.holo.set_content(self.content)
             self.content.set_detached(False)
 
+    def _snap_chat_back(self) -> None:
+        """Put the chat panel back next to Capri; it follows her again."""
+        self.holo.user_placed = False
+        self.holo.place_beside(self.character.char_rect_global(),
+                               self.character.current_screen_rect())
+
     def _follow_character(self) -> None:
-        if not self._detached and self.holo.isVisible():
+        if not self._detached and self.holo.isVisible() and not self.holo.user_placed:
             self.holo.place_beside(self.character.char_rect_global(),
                                    self.character.current_screen_rect())
         if self.bubble.isVisible():

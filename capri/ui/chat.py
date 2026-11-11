@@ -2,7 +2,8 @@
 and the detached window used for long sessions."""
 from __future__ import annotations
 
-from PySide6.QtCore import QEasingCurve, QPoint, QRect, QRectF, Qt, QTimer, QVariantAnimation, Signal
+from PySide6.QtCore import (QEasingCurve, QEvent, QObject, QPoint, QRect, QRectF, Qt, QTimer,
+                            QVariantAnimation, Signal)
 from PySide6.QtGui import QColor, QKeyEvent, QPainter, QRegion
 from PySide6.QtWidgets import (QFrame, QHBoxLayout, QInputDialog, QLabel, QListWidget,
                                QListWidgetItem, QMessageBox, QPlainTextEdit, QPushButton,
@@ -11,6 +12,34 @@ from PySide6.QtWidgets import (QFrame, QHBoxLayout, QInputDialog, QLabel, QListW
 from ..config.theme import Theme
 from .messages import MessageWidget, ToolEntry
 from .style import paint_glass, qcolor
+
+
+def _on_top(dialog: QWidget) -> QWidget:
+    """Make a dialog stay above Capri and the chat panel (both are always-on-top windows)."""
+    dialog.setWindowModality(Qt.ApplicationModal)  # must come first: it resets the flags
+    dialog.setWindowFlag(Qt.WindowStaysOnTopHint, True)
+    return dialog
+
+
+def ask_text(parent: QWidget, title: str, label: str, text: str = "") -> tuple[str, bool]:
+    """Text prompt that is never hidden behind Capri's windows."""
+    dialog = QInputDialog(parent)
+    dialog.setWindowTitle(title)
+    dialog.setLabelText(label)
+    dialog.setTextValue(text)
+    _on_top(dialog)
+    dialog.raise_()
+    ok = dialog.exec() == QInputDialog.Accepted
+    return dialog.textValue(), ok
+
+
+def ask_yes_no(parent: QWidget, title: str, text: str) -> bool:
+    """Yes/No question that is never hidden behind Capri's windows."""
+    box = QMessageBox(QMessageBox.Question, title, text, QMessageBox.Yes | QMessageBox.No, parent)
+    box.setDefaultButton(QMessageBox.No)
+    _on_top(box)
+    box.raise_()
+    return box.exec() == QMessageBox.Yes
 
 
 class ChatInput(QPlainTextEdit):
@@ -99,6 +128,7 @@ class ChatContent(QWidget):
             lambda: self._drawer.setVisible(not self._drawer.isVisible()))
         self._title = QLabel("CAPRI")
         self._title.setObjectName("title")
+        self._title.setToolTip("Drag to move the chat. Double-click to put it back next to Capri.")
         self._badge = QLabel("")
         self._badge.setObjectName("dim")
         self._detach_button = self._flat("⧉", "Detach into a normal window")
@@ -148,6 +178,10 @@ class ChatContent(QWidget):
         bottom.addWidget(self._send_button)
         column.addLayout(bottom)
         root.addLayout(column, 1)
+
+    def drag_handles(self) -> list[QWidget]:
+        """Widgets that can be used to drag the panel around (the title bar)."""
+        return [self._title, self._badge]
 
     def _flat(self, text: str, tip: str) -> QPushButton:
         button = QPushButton(text)
@@ -288,8 +322,7 @@ class ChatContent(QWidget):
         if not conv_id:
             return
         current = self._list.currentItem().text()
-        title, ok = QInputDialog.getText(self.window(), "Rename conversation", "New name:",
-                                         text=current)
+        title, ok = ask_text(self.window(), "Rename conversation", "New name:", current)
         if ok and title.strip():
             self.rename_requested.emit(conv_id, title.strip())
 
@@ -297,10 +330,8 @@ class ChatContent(QWidget):
         conv_id = self._selected_id()
         if not conv_id:
             return
-        answer = QMessageBox.question(
-            self.window(), "Delete conversation",
-            f"Delete “{self._list.currentItem().text()}”? This cannot be undone.")
-        if answer == QMessageBox.Yes:
+        if ask_yes_no(self.window(), "Delete conversation",
+                      f"Delete “{self._list.currentItem().text()}”? This cannot be undone."):
             self.delete_requested.emit(conv_id)
 
 
@@ -330,7 +361,14 @@ class _ScanOverlay(QWidget):
 
 
 class HoloPanel(QWidget):
-    """Frameless translucent panel that unfolds from Capri's side and follows her."""
+    """Frameless translucent panel that unfolds from Capri's side.
+
+    It follows Capri until the user drags it by its title bar (or its border);
+    from then on it stays where it was put. Double-clicking the title bar
+    snaps it back next to Capri.
+    """
+
+    snap_back_requested = Signal()
 
     PANEL_W, PANEL_H = 430, 560
 
@@ -340,6 +378,8 @@ class HoloPanel(QWidget):
         self.side = "right"
         self.reveal = 1.0
         self._closing = False
+        self.user_placed = False
+        self._drag_offset: QPoint | None = None
         flags = Qt.Tool | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint
         if always_on_top:
             flags |= Qt.WindowStaysOnTopHint
@@ -359,6 +399,56 @@ class HoloPanel(QWidget):
         self._layout.addWidget(content)
         content.show()
         self._overlay.raise_()
+        for handle in getattr(content, "drag_handles", lambda: [])():
+            handle.installEventFilter(self)
+            handle.setCursor(Qt.SizeAllCursor)
+
+    # ------------------------------------------------------------ dragging
+    def _drag_start(self, global_pos: QPoint) -> None:
+        self._drag_offset = global_pos - self.pos()
+
+    def _drag_move(self, global_pos: QPoint) -> None:
+        if self._drag_offset is not None:
+            self.user_placed = True
+            self.move(global_pos - self._drag_offset)
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:  # noqa: N802
+        kind = event.type()
+        if kind == QEvent.MouseButtonDblClick and event.button() == Qt.LeftButton:
+            self._drag_offset = None
+            self.snap_back_requested.emit()
+            return True
+        if kind == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+            self._drag_start(event.globalPosition().toPoint())
+            return True
+        if kind == QEvent.MouseMove and self._drag_offset is not None:
+            self._drag_move(event.globalPosition().toPoint())
+            return True
+        if kind == QEvent.MouseButtonRelease and self._drag_offset is not None:
+            self._drag_offset = None
+            return True
+        return super().eventFilter(watched, event)
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802
+        if event.button() == Qt.LeftButton:  # the margins around the content act as a border
+            self._drag_start(event.globalPosition().toPoint())
+
+    def mouseMoveEvent(self, event) -> None:  # noqa: N802
+        self._drag_move(event.globalPosition().toPoint())
+
+    def mouseReleaseEvent(self, _event) -> None:  # noqa: N802
+        self._drag_offset = None
+
+    def keep_on_screen(self) -> None:
+        """Pull the panel back inside the nearest screen (after a resolution change etc.)."""
+        from PySide6.QtGui import QGuiApplication
+
+        screen = QGuiApplication.screenAt(self.geometry().center()) or \
+            QGuiApplication.primaryScreen()
+        area = screen.availableGeometry()
+        x = max(area.left(), min(self.x(), area.right() - self.width()))
+        y = max(area.top(), min(self.y(), area.bottom() - self.height()))
+        self.move(x, y)
 
     def set_always_on_top(self, enabled: bool) -> None:
         visible = self.isVisible()
