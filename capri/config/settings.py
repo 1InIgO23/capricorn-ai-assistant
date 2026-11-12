@@ -25,6 +25,8 @@ DEFAULTS: dict[str, Any] = {
     "character_size": 220,
     "effects_intensity": "full",
     "dock_to_windows": True,
+    "roam_enabled": True,
+    "roam_interval_minutes": 4,
     "remarks_enabled": True,
     "remarks_interval_minutes": 20,
     "max_tool_rounds": 12,

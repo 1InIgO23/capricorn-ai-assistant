@@ -31,7 +31,8 @@
     "sleeping": "#6A3FA8",
     "peek": "#FF1450",
     "dragging": "#FF8DB4",
-    "pointing": "#12F56C"
+    "pointing": "#12F56C",
+    "floating": "#FF8DB4"
   },
   "mood_tints": {
     "bored": "#6A3FA8",

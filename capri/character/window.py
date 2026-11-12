@@ -28,6 +28,7 @@ from . import app_windows
 from .docking import (DockTarget, Rect, dock_obstructed, dock_position, find_dock,
                       window_edges)
 from .mood import MoodEngine
+from .roaming import FloatTrip, pick_destination, plan_trip
 from .placeholder import draw_construct
 from .sprites import SpriteLibrary
 
@@ -91,6 +92,7 @@ class CharacterWindow(QWidget):
         self._last_hover = 0.0
         self._shake_until = 0.0
         self._pointing_until = 0.0
+        self._forced_state: str | None = None
         self._point_target: QPoint | None = None
         self._paint_center = QPointF(0, 0)
         # effects
@@ -125,6 +127,9 @@ class CharacterWindow(QWidget):
         self._dock_timer.timeout.connect(self._follow_window)
         self._clicks: deque[float] = deque(maxlen=12)
         self._next_wander = now + random.uniform(360, 600)
+        self._trip: FloatTrip | None = None
+        self._trip_start = 0.0
+        self._next_roam = now + self._roam_gap()
 
         self._layout()
         self._restore_position()
@@ -230,6 +235,7 @@ class CharacterWindow(QWidget):
     def set_activity(self, state: str | None, hud: str | None = None, visual: str = "",
                      chip: str = "") -> None:
         """Set what she is doing: character state, HUD line and tool visual."""
+        self.stop_floating()
         self._activity = state
         self._visual = visual
         self._ticker = []
@@ -280,6 +286,7 @@ class CharacterWindow(QWidget):
 
     def set_alert(self, alert: bool) -> None:
         """Pulse in the alert color while a confirmation is waiting."""
+        self.stop_floating()
         self._alert = alert
         if alert:
             self.wake()
@@ -312,6 +319,7 @@ class CharacterWindow(QWidget):
 
     def start_pointing(self, target: QPoint, seconds: float) -> None:
         """Hold the pointing pose for *seconds*, facing the global point *target*."""
+        self.stop_floating()
         self.wake()
         self._point_target = QPoint(target)
         self._pointing_until = time.monotonic() + seconds
@@ -369,6 +377,7 @@ class CharacterWindow(QWidget):
     def rerender_to(self, top_left: QPoint, done: Callable[[], None] | None = None,
                     keep_dock: bool = False) -> None:
         """Dissolve here and reassemble with the character at *top_left*."""
+        self.stop_floating()
         if not keep_dock:
             self.clear_dock()
         if self._intensity() <= 0 or not self.isVisible():
@@ -391,9 +400,83 @@ class CharacterWindow(QWidget):
         hour = _dt.datetime.now().hour
         return hour >= 23 or hour < 6
 
+    # --------------------------------------------------------- forced pose
+    @property
+    def forced_state(self) -> str | None:
+        return self._forced_state
+
+    def set_forced_state(self, state: str | None) -> None:
+        """Lock her in *state* (any pose) until called with ``None`` (automatic)."""
+        self._forced_state = state
+        if state is not None:
+            self.wake()
+            self.set_hud(f"POSE LOCKED · {state.upper()}", hold=2.5)
+        else:
+            self.set_hud("POSE · AUTOMATIC", hold=2.0)
+        self.glitch_burst(0.2)
+
+    # ------------------------------------------------------------- roaming
+    def _roam_gap(self) -> float:
+        """Seconds until the next trip: the setting, randomized by ±50%."""
+        minutes = float(self.settings.get("roam_interval_minutes", 4) or 4)
+        return max(30.0, minutes * 60 * random.uniform(0.5, 1.5))
+
+    @property
+    def floating(self) -> bool:
+        return self._trip is not None
+
+    def float_to(self, top_left: QPoint) -> None:
+        """Glide smoothly to *top_left* (her square), relaxing on the way."""
+        self.clear_dock()
+        screen = _rect(self.current_screen_rect())
+        start = self.char_pos()
+        self._trip = plan_trip((start.x(), start.y()), (top_left.x(), top_left.y()),
+                               screen, self.S)
+        self._trip_start = time.monotonic()
+        self._face_target = self._trip.direction
+        log.info("Floating to (%d, %d) in %.1fs", top_left.x(), top_left.y(),
+                 self._trip.duration)
+
+    def stop_floating(self) -> None:
+        """End the trip where she is now."""
+        if self._trip is not None:
+            self._trip = None
+            self._next_roam = time.monotonic() + self._roam_gap()
+
+    def _update_trip(self, now: float) -> None:
+        trip = self._trip
+        if trip is None:
+            return
+        elapsed = now - self._trip_start
+        x, y = trip.position(elapsed)
+        self.move_char_to(QPoint(round(x), round(y)))
+        self._face_target = trip.direction
+        if trip.finished(elapsed):
+            self.stop_floating()
+            self.save_position()
+
+    def _update_roam(self, now: float) -> None:
+        """Every few minutes, float to a random spot (if she is free to)."""
+        if self._trip is not None or now < self._next_roam:
+            return
+        if not self.settings.get("roam_enabled", True):
+            self._next_roam = now + 60
+            return
+        if (self._busy() or self.asleep or self._dock or self._pinned or self._dragging
+                or self._hovered):
+            self._next_roam = now + 20  # not free right now: try again a bit later
+            return
+        self._next_roam = now + self._roam_gap()
+        pos = self.char_pos()
+        target = pick_destination(_rect(self.current_screen_rect()), self.S, (pos.x(), pos.y()))
+        if target is not None:
+            self.float_to(QPoint(*target))
+
     def _resolve_state(self, now: float) -> str:
         if self._dragging:
             return "dragging"
+        if self._forced_state is not None:
+            return self._forced_state
         if now < self._error_until:
             return "error"
         if self._alert:
@@ -402,6 +485,8 @@ class CharacterWindow(QWidget):
             return "pointing"
         if self._activity:
             return self._activity
+        if self._trip is not None:
+            return "floating"
         if now < self._happy_until:
             return "happy"
         if self._sleeping:
@@ -449,13 +534,17 @@ class CharacterWindow(QWidget):
                 self.wake()
             self._last_interaction = now
         self._hovered = hovered
+        if hovered and self._trip is not None:
+            self.stop_floating()  # stop under the mouse so she can be clicked
 
         # awareness: face the mouse and tilt slightly
         radius = float(self.theme.fx("awareness_radius", 280))
         center = rect.center()
         dx, dy = cursor.x() - center.x(), cursor.y() - center.y()
         tilt_target = 0.0
-        if now < self._pointing_until and self._point_target is not None:
+        if self._trip is not None:
+            pass  # facing the direction of travel (set in _update_trip)
+        elif now < self._pointing_until and self._point_target is not None:
             self._face_target = 1.0 if self._point_target.x() >= center.x() else -1.0
         elif not self.asleep and math.hypot(dx, dy) < radius:
             if abs(dx) > 12:
@@ -490,6 +579,8 @@ class CharacterWindow(QWidget):
         self._update_glitch(now, speed)
         self._update_dock(now)
         self._update_wander(now, mood)
+        self._update_roam(now)
+        self._update_trip(now)
 
         # HUD fade
         if self._hud_hold_until and now > self._hud_hold_until:
@@ -689,22 +780,15 @@ class CharacterWindow(QWidget):
         return True
 
     def _update_wander(self, now: float, mood: str) -> None:
-        """When bored she occasionally re-renders somewhere nearby."""
+        """When bored she sometimes goes to peek from behind a nearby window."""
         if now < self._next_wander:
             return
         self._next_wander = now + random.uniform(420, 780)
         if (mood != "bored" or self._busy() or self.asleep or self._dock or self._pinned
                 or self._dragging):
             return
-        if self._docks_to_windows() and random.random() < 0.5 and self._peek_from_window():
-            return
-        screen = self.current_screen_rect()
-        pos = self.char_pos()
-        x = max(screen.left() + 10, min(pos.x() + random.randint(-260, 260),
-                                        screen.right() - self.S - 10))
-        y = max(screen.top() + 10, min(pos.y() + random.randint(-120, 120),
-                                       screen.bottom() - self.S - 40))
-        self.rerender_to(QPoint(x, y))
+        if self._trip is None and self._docks_to_windows() and random.random() < 0.5:
+            self._peek_from_window()
 
     # ---------------------------------------------------------------- mouse
     def _on_character(self, pos: QPointF) -> bool:
@@ -729,6 +813,7 @@ class CharacterWindow(QWidget):
         current = event.globalPosition().toPoint()
         if not self._dragging and (current - self._press_pos).manhattanLength() > 5:
             self._dragging = True
+            self.stop_floating()
             self.wake()
             self.clear_dock()
             self.stop_pointing()

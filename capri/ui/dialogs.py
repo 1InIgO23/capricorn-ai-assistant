@@ -222,6 +222,10 @@ class SettingsDialog(QDialog):
                                       "hides behind it and peeks out. When bored she may also "
                                       "do it on her own.")
         self._dock_windows.setChecked(bool(self._settings.get("dock_to_windows", True)))
+        self._roam = QCheckBox("Float around the screen by herself")
+        self._roam.setChecked(bool(self._settings.get("roam_enabled", True)))
+        self._roam_gap = self._spin("roam_interval_minutes", 1, 120, " min")
+        self._roam_gap.setToolTip("Average time between trips (each one is randomized)")
         self._remarks = QCheckBox("Allow rare spontaneous remarks")
         self._remarks.setChecked(bool(self._settings.get("remarks_enabled", True)))
         self._remark_gap = self._spin("remarks_interval_minutes", 5, 240, " min")
@@ -230,6 +234,8 @@ class SettingsDialog(QDialog):
         form.addRow("", self._on_top)
         form.addRow("Fall asleep after", self._sleep)
         form.addRow("", self._dock_windows)
+        form.addRow("", self._roam)
+        form.addRow("Float about every", self._roam_gap)
         form.addRow("", self._remarks)
         form.addRow("At most one remark every", self._remark_gap)
         return page
@@ -270,6 +276,8 @@ class SettingsDialog(QDialog):
         s.set("always_on_top", self._on_top.isChecked())
         s.set("sleep_minutes", self._sleep.value())
         s.set("dock_to_windows", self._dock_windows.isChecked())
+        s.set("roam_enabled", self._roam.isChecked())
+        s.set("roam_interval_minutes", self._roam_gap.value())
         s.set("remarks_enabled", self._remarks.isChecked())
         s.set("remarks_interval_minutes", self._remark_gap.value())
         s.set("workspace", self._workspace.text().strip())

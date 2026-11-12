@@ -19,7 +19,7 @@ log = logging.getLogger(__name__)
 
 STATES: tuple[str, ...] = (
     "idle", "blink", "happy", "talking", "thinking", "searching", "files",
-    "coding", "alert", "error", "sleeping", "peek", "dragging", "pointing",
+    "coding", "alert", "error", "sleeping", "peek", "dragging", "pointing", "floating",
 )
 
 #: For each state, the states whose images are tried next (in order) when the
@@ -40,6 +40,7 @@ FALLBACKS: dict[str, tuple[str, ...]] = {
     "peek": ("idle",),
     "dragging": ("idle",),
     "pointing": ("idle",),
+    "floating": ("idle",),
 }
 
 #: Where Capri's pointing hand is inside ``pointing`` images (fractions of the image,

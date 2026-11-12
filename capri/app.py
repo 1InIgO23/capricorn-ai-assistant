@@ -10,11 +10,12 @@ import time
 from pathlib import Path
 
 from PySide6.QtCore import QLockFile, QObject, QPoint, QRect, QStandardPaths, Qt, QTimer, QUrl
-from PySide6.QtGui import QAction, QColor, QDesktopServices, QIcon, QPainter, QPixmap, QPolygonF
+from PySide6.QtGui import QAction, QActionGroup, QColor, QDesktopServices, QIcon, QPainter, QPixmap, QPolygonF
 from PySide6.QtCore import QPointF
 from PySide6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon
 
 from . import APP_NAME, __version__
+from .character.assets import STATES
 from .character.bubble import SpeechBubble
 from .character.mood import MoodEngine
 from .character.sprites import SpriteLibrary
@@ -167,12 +168,34 @@ class CapriApp(QObject):
         act_quit.triggered.connect(self.app.quit)
         self.menu.addAction(self.act_chat)
         self.menu.addSeparator()
+        self.menu.addMenu(self._build_pose_menu())
         self.menu.addAction(act_model)
         self.menu.addAction(act_settings)
         self.menu.addAction(act_reload)
         self.menu.addAction(act_folder)
         self.menu.addSeparator()
         self.menu.addAction(act_quit)
+
+    def _build_pose_menu(self) -> QMenu:
+        """Submenu that locks Capri in one pose, or lets her choose (Automatic)."""
+        menu = QMenu("Pose", self.menu)
+        group = QActionGroup(menu)
+        group.setExclusive(True)
+        auto = QAction("Automatic", menu)
+        auto.setCheckable(True)
+        auto.setChecked(True)
+        auto.triggered.connect(lambda: self.character.set_forced_state(None))
+        group.addAction(auto)
+        menu.addAction(auto)
+        menu.addSeparator()
+        for state in STATES:
+            action = QAction(state.capitalize(), menu)
+            action.setCheckable(True)
+            action.triggered.connect(lambda _checked=False, s=state:
+                                     self.character.set_forced_state(s))
+            group.addAction(action)
+            menu.addAction(action)
+        return menu
 
     def _build_tray(self) -> None:
         self.tray = QSystemTrayIcon(self.icon, self)

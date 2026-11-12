@@ -23,6 +23,7 @@ Trigger or Netflix. All rights to the character belong to their respective owner
 - Animated character with glitch, glow and scanline effects that react to what she is doing
 - Status line under her (`SEARCHING "…"`, `READING report.pdf`, `RUNNING cleanup.py · 3s`)
 - Moods and sleep (dimmer and sleepier at night)
+- Floats around the screen by herself every few minutes, relaxing on the way
 - Chat panel with streaming answers, code highlighting and saved conversations
 - Web search with sources, file management, Python / PowerShell / batch scripts
 - Points at any open window with a "neural tether" beam and a target lock
@@ -54,11 +55,13 @@ If activation is blocked, run `Set-ExecutionPolicy -Scope CurrentUser RemoteSign
 | Move Capri | Drag her. Drop her at a screen edge to dock her there, half hidden |
 | Peek from a window | Drop her against the left, right or top edge of another app's window: she hides halfway behind it, peeks out and follows the window if it moves. When bored she may do it on her own (can be turned off in Settings) |
 | Move the chat | Drag its title bar. It then stays where you put it; double-click the title to send it back next to Capri |
+| Roaming | Every few minutes she floats to a random spot on her own. Hover over her to stop her. Turn it off or change how often in *Settings → Character* |
 | Change the AI model / API key | Click the model name in the chat header (e.g. `local · qwen2.5:7b ▾`), or *AI model…* in the menu |
 | Detach the chat | `⧉` button (normal resizable window) |
 | Conversations | `☰` button: new, rename, delete, reopen |
 | Settings | `⚙` button in the chat header, or *Settings…* in the menu |
-| Menu | Right-click Capri or the tray icon: chat, AI model, settings, reload assets, quit |
+| Lock a pose | Right-click → *Pose* → pick one to keep her in it (handy to preview your images). *Automatic* gives control back to her |
+| Menu | Right-click Capri or the tray icon: chat, pose, AI model, settings, reload assets, quit |
 
 Example requests: *"What's new in Python 3.13? Give me sources."*, *"Move the screenshots
 on my Desktop into a folder called Screenshots."*, *"Write a script that renames every
@@ -95,6 +98,7 @@ Without images, an abstract placeholder is drawn.
 | `peek.png` | Docked at a screen or window edge | `idle` |
 | `dragging_1.png`, `dragging_2.png` | While you drag her (2-frame animation) | `idle` |
 | `pointing.png` | Pointing at a window (draw her pointing to the right) | `idle` |
+| `floating.png` | Floating across the screen by herself, relaxed | `idle` |
 
 For animations, use numbered frames instead (`idle_1.png`, `idle_2.png`, …). Frame rates can
 be set in `assets/character/animation.json` (see `animation.example.json`). There you can also

@@ -45,6 +45,7 @@ DEFAULT_THEME: dict[str, Any] = {
         "peek": "#FF1450",
         "dragging": "#FF8DB4",
         "pointing": "#12F56C",
+        "floating": "#FF8DB4",
     },
     "pointer": {
         "duration": 6.0,
