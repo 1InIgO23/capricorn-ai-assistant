@@ -7,5 +7,9 @@ send2trash>=1.8
 Pygments>=2.17
 pypdf>=4.0
 
+# macOS only: window detection (Quartz), Dock icon and tool window fixes (Cocoa)
+pyobjc-framework-Cocoa>=10.0; sys_platform == "darwin"
+pyobjc-framework-Quartz>=10.0; sys_platform == "darwin"
+
 # Tests
 pytest>=8.0

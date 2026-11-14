@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import os
 import re
+import signal
 import subprocess
 import sys
 import threading
@@ -11,11 +12,26 @@ import time
 from pathlib import Path
 from typing import Any
 
+from ..osutil import machine_word
 from .base import ConfirmRequest, Tool, ToolContext, ToolResult, obj
 
-SCRIPT_TYPES = {".py": "python", ".ps1": "powershell", ".bat": "batch", ".cmd": "batch"}
+# Script types Capri may write and run, mapped to their code-fence language.
+if sys.platform == "win32":
+    SCRIPT_TYPES = {".py": "python", ".ps1": "powershell", ".bat": "batch", ".cmd": "batch"}
+    SCRIPT_KINDS = "Python (.py), PowerShell (.ps1) or batch (.bat/.cmd)"
+else:
+    SCRIPT_TYPES = {".py": "python", ".sh": "bash", ".zsh": "zsh"}
+    SCRIPT_KINDS = "Python (.py), Bash (.sh) or Zsh (.zsh)"
+# Windows interpreters expect CRLF line endings; everything else uses LF.
+_CRLF_TYPES = {".ps1", ".bat", ".cmd"}
 MAX_OUTPUT = 8000
 _NAME_RE = re.compile(r"^[\w][\w .\-]{0,80}$")
+
+
+def _suffix_list() -> str:
+    """Allowed script extensions as text, e.g. ``.py, .sh or .zsh``."""
+    suffixes = list(SCRIPT_TYPES)
+    return ", ".join(suffixes[:-1]) + " or " + suffixes[-1]
 
 
 def script_path(filename: Any, ctx: ToolContext) -> Path:
@@ -24,7 +40,7 @@ def script_path(filename: Any, ctx: ToolContext) -> Path:
     if not name or not _NAME_RE.match(name):
         raise ValueError("Use a simple script file name such as cleanup.py")
     if Path(name).suffix.lower() not in SCRIPT_TYPES:
-        raise ValueError("Scripts must end in .py, .ps1, .bat or .cmd")
+        raise ValueError("Scripts must end in " + _suffix_list())
     return ctx.workspace / name
 
 
@@ -40,6 +56,10 @@ def build_command(path: Path, args: list[str]) -> list[str]:
     if suffix == ".ps1":
         return ["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
                 "-File", str(path), *args]
+    if suffix == ".sh":
+        return ["/bin/bash", str(path), *args]
+    if suffix == ".zsh":
+        return ["/bin/zsh", str(path), *args]
     return ["cmd", "/c", str(path), *args]
 
 
@@ -50,7 +70,9 @@ def _kill_tree(proc: subprocess.Popen[str]) -> None:
                            capture_output=True, timeout=10,
                            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         else:
-            proc.kill()
+            # The script runs in its own session (see run_script), so killing
+            # the process group also stops any child processes it started.
+            os.killpg(proc.pid, signal.SIGKILL)
     except (OSError, subprocess.SubprocessError):
         try:
             proc.kill()
@@ -90,7 +112,8 @@ def save_script(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
         if not ctx.confirm(request):
             return ToolResult(False, "The user denied overwriting the script.", "denied by user")
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8", newline="\n" if path.suffix == ".py" else "\r\n")
+    newline = "\r\n" if path.suffix.lower() in _CRLF_TYPES else "\n"
+    path.write_text(content, encoding="utf-8", newline=newline)
     fence = SCRIPT_TYPES[path.suffix.lower()]
     return ToolResult(True, f"Saved script to {path}. Run it with run_script.",
                       f"saved {path.name}", details=f"`{path}`\n```{fence}\n{content}\n```")
@@ -107,7 +130,8 @@ def run_script(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     command = build_command(path, extra)
     request = ConfirmRequest(
         title="Run a script",
-        summary="Capri wants to run this script on your PC. Read it before allowing.",
+        summary=f"Capri wants to run this script on your {machine_word()}. "
+                "Read it before allowing.",
         details=[f"Script: {path}",
                  f"Working directory: {ctx.workspace}",
                  f"Arguments: {' '.join(extra) if extra else '(none)'}",
@@ -126,7 +150,8 @@ def run_script(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
         proc = subprocess.Popen(  # noqa: S603
             command, cwd=str(ctx.workspace), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             stdin=subprocess.DEVNULL, text=True, encoding="utf-8", errors="replace", env=env,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            start_new_session=sys.platform != "win32")
     except OSError as exc:
         raise ValueError(f"Could not start the interpreter: {exc}") from exc
 
@@ -189,8 +214,8 @@ def script_tools() -> list[Tool]:
     """Script saving and running tools."""
     return [
         Tool("save_script", "save script",
-             "Save a Python (.py), PowerShell (.ps1) or batch (.bat/.cmd) script into the "
-             "workspace folder. Give only a file name, not a path.",
+             f"Save a {SCRIPT_KINDS} script into the workspace folder. Give only a file "
+             "name, not a path.",
              obj({"filename": {"type": "string", "description": "e.g. cleanup.py"},
                   "content": {"type": "string", "description": "Full script source"}},
                  ["filename", "content"]),

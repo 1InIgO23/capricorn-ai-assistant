@@ -10,11 +10,12 @@ import time
 from pathlib import Path
 
 from PySide6.QtCore import QLockFile, QObject, QPoint, QRect, QStandardPaths, Qt, QTimer, QUrl
-from PySide6.QtGui import QAction, QActionGroup, QColor, QDesktopServices, QIcon, QPainter, QPixmap, QPolygonF
+from PySide6.QtGui import (QAction, QActionGroup, QColor, QCursor, QDesktopServices, QIcon,
+                           QPainter, QPixmap, QPolygonF)
 from PySide6.QtCore import QPointF
 from PySide6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon
 
-from . import APP_NAME, __version__
+from . import APP_NAME, __version__, osutil
 from .character.assets import STATES
 from .character.bubble import SpeechBubble
 from .character.mood import MoodEngine
@@ -76,6 +77,9 @@ class CapriApp(QObject):
         self.settings = Settings()
         for secret in self.settings.secrets():
             register_secret(secret)
+        # Platform tweaks (macOS: keep tool windows visible, Dock icon) must be
+        # in place before the first window is shown.
+        osutil.configure_application(app, bool(self.settings.get("show_dock_icon", False)))
         self.theme = Theme.load(paths.theme_file())
         app.setStyleSheet(build_stylesheet(self.theme))
         self.icon = make_icon(self.theme)
@@ -200,16 +204,23 @@ class CapriApp(QObject):
     def _build_tray(self) -> None:
         self.tray = QSystemTrayIcon(self.icon, self)
         self.tray.setToolTip("Capri")
-        self.tray.setContextMenu(self.menu)
+        if not osutil.IS_MAC:
+            # On macOS a context menu would open on every click of the menu bar
+            # icon; there the menu is shown on right-click by _tray_activated, so
+            # a left click toggles the chat like on Windows.
+            self.tray.setContextMenu(self.menu)
         self.tray.activated.connect(self._tray_activated)
         if QSystemTrayIcon.isSystemTrayAvailable():
             self.tray.show()
         else:
-            log.warning("No system tray available; use Capri's right-click menu instead.")
+            log.warning("No %s available; use Capri's right-click menu instead.",
+                        osutil.tray_name())
 
     def _tray_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
         if reason in (QSystemTrayIcon.Trigger, QSystemTrayIcon.DoubleClick):
             self.toggle_chat()
+        elif reason == QSystemTrayIcon.Context and osutil.IS_MAC:
+            self.menu.popup(QCursor.pos())
 
     def _connect(self) -> None:
         ch = self.character
@@ -659,6 +670,7 @@ class CapriApp(QObject):
                 register_secret(secret)
             self.character.apply_settings()
             self.holo.set_always_on_top(bool(self.settings.get("always_on_top", True)))
+            osutil.set_dock_icon_visible(bool(self.settings.get("show_dock_icon", False)))
             self._refresh_backend_info()
             log.info("Settings saved. Backend: %s", self.settings.get("backend"))
 
@@ -722,7 +734,7 @@ def main() -> int:
     lock.setStaleLockTime(0)
     if not lock.tryLock(100):
         QMessageBox.information(None, "Capri", "Capri is already running. Look for her on your "
-                                               "desktop or in the system tray.")
+                                               f"desktop or in the {osutil.tray_name()}.")
         return 0
     try:
         controller = CapriApp(app)  # noqa: F841 (keeps everything alive)

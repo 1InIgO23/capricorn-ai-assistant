@@ -61,9 +61,11 @@ DEFAULT_THEME: dict[str, Any] = {
         "tired": "#2A3F7A",
     },
     "fonts": {
-        "ui": ["Segoe UI", "Arial"],
-        "display": ["Bahnschrift", "Segoe UI", "Arial"],
-        "mono": ["Cascadia Mono", "Consolas", "Courier New"],
+        # Windows fonts first, then their macOS counterparts (missing ones are skipped).
+        "ui": ["Segoe UI", "Helvetica Neue", "Arial"],
+        "display": ["Bahnschrift", "DIN Alternate", "Avenir Next Condensed", "Segoe UI",
+                    "Helvetica Neue", "Arial"],
+        "mono": ["Cascadia Mono", "Consolas", "SF Mono", "Menlo", "Courier New"],
         "ui_size": 10,
         "mono_size": 10,
         "hud_size": 9,

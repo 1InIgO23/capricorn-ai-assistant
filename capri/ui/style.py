@@ -5,9 +5,30 @@ import math
 import time
 
 from PySide6.QtCore import QRectF
-from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
+from PySide6.QtGui import QColor, QFont, QFontDatabase, QPainter, QPainterPath, QPen
 
 from ..config.theme import Theme
+from ..osutil import FONT_SCALE, font_pt
+
+_installed_families: set[str] | None = None
+
+
+def _installed(families: list[str]) -> list[str]:
+    """Keep only the font families that exist on this machine.
+
+    The theme lists fonts for every platform (Segoe UI on Windows, Helvetica
+    Neue on macOS...). Asking Qt for a missing family makes it build a slow
+    alias table on macOS, so missing ones are dropped up front. If none is
+    installed the list is returned as is and Qt picks its default font.
+    """
+    global _installed_families
+    if _installed_families is None:
+        try:
+            _installed_families = set(QFontDatabase.families())
+        except Exception:  # no QGuiApplication yet: don't filter
+            return families
+    found = [name for name in families if name in _installed_families]
+    return found or families
 
 
 def qcolor(value: str, alpha: float | None = None) -> QColor:
@@ -34,11 +55,11 @@ def blend(a: QColor, b: QColor, t: float) -> QColor:
 def qfont(theme: Theme, kind: str = "ui", size: int | None = None, bold: bool = False) -> QFont:
     """QFont for ``ui`` / ``display`` / ``mono``."""
     font = QFont()
-    font.setFamilies(theme.font_families(kind))
+    font.setFamilies(_installed(theme.font_families(kind)))
     size_key = {"mono": "mono_size", "hud": "hud_size"}.get(kind, "ui_size")
     if kind == "hud":
-        font.setFamilies(theme.font_families("mono"))
-    font.setPointSize(size or theme.font_size(size_key))
+        font.setFamilies(_installed(theme.font_families("mono")))
+    font.setPointSizeF((size or theme.font_size(size_key)) * FONT_SCALE)
     font.setBold(bold)
     if kind in ("mono", "hud"):
         font.setStyleHint(QFont.Monospace)
@@ -47,7 +68,7 @@ def qfont(theme: Theme, kind: str = "ui", size: int | None = None, bold: bool = 
 
 def css_fonts(theme: Theme, kind: str) -> str:
     """CSS ``font-family`` value for a font kind."""
-    return ", ".join(f'"{name}"' for name in theme.font_families(kind))
+    return ", ".join(f'"{name}"' for name in _installed(theme.font_families(kind)))
 
 
 def pulse(theme: Theme) -> float:
@@ -92,7 +113,7 @@ def build_stylesheet(theme: Theme) -> str:
     ui, mono, display = css_fonts(theme, "ui"), css_fonts(theme, "mono"), css_fonts(theme, "display")
     size = theme.font_size("ui_size")
     return f"""
-    QWidget {{ color: {c('text')}; font-family: {ui}; font-size: {size}pt; }}
+    QWidget {{ color: {c('text')}; font-family: {ui}; font-size: {font_pt(size)}pt; }}
     QDialog, QMessageBox, QInputDialog {{ background: {c('surface')}; }}
     QToolTip {{ background: {c('background')}; color: {c('text')}; border: 1px solid {c('border')};
                padding: 4px; }}
@@ -146,8 +167,8 @@ def build_stylesheet(theme: Theme) -> str:
     QScrollBar::add-line, QScrollBar::sub-line {{ width: 0; height: 0; }}
     QScrollBar::add-page, QScrollBar::sub-page {{ background: transparent; }}
     QLabel#dim {{ color: {c('text_dim')}; }}
-    QLabel#hint {{ color: {c('warning')}; font-size: {max(7, size - 2)}pt; }}
-    QLabel#title {{ font-family: {display}; font-size: {size + 2}pt; font-weight: bold;
+    QLabel#hint {{ color: {c('warning')}; font-size: {font_pt(max(7, size - 2))}pt; }}
+    QLabel#title {{ font-family: {display}; font-size: {font_pt(size + 2)}pt; font-weight: bold;
                    color: {c('text')}; }}
     QLabel#mono {{ font-family: {mono}; }}
     """

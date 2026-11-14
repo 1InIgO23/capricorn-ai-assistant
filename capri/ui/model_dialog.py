@@ -9,9 +9,11 @@ from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QFormLayout, QHBoxLayout, QLabel,
                                QLineEdit, QPushButton, QVBoxLayout, QWidget)
 
+from ..config import paths
 from ..config.settings import Settings
 from ..config.theme import Theme
 from ..llm.base import BackendError, LLMBackend, available_backends
+from ..osutil import machine_word
 from .style import css_fonts, paint_glass, qcolor
 
 log = logging.getLogger(__name__)
@@ -144,7 +146,7 @@ class ModelDialog(QDialog):
         self._status.setStyleSheet(f"font-family: {css_fonts(t, 'mono')};")
         root.addWidget(self._status)
 
-        note = QLabel("API keys are stored only in %APPDATA%\\Capri\\settings.json and are never "
+        note = QLabel(f"API keys are stored only in {paths.settings_file()} and are never "
                       "written to the logs.")
         note.setObjectName("dim")
         note.setWordWrap(True)
@@ -187,8 +189,8 @@ class ModelDialog(QDialog):
         self._key_label.setVisible(cls.needs_api_key)
         self._key_row.setVisible(cls.needs_api_key)
         self._kind.setText(
-            "Local model: runs on your PC, free and private. Fine for chat, web lookups, file "
-            "chores and simple scripts." if cls.is_local else
+            f"Local model: runs on your {machine_word()}, free and private. Fine for chat, "
+            "web lookups, file chores and simple scripts." if cls.is_local else
             "Cloud model: needs an API key and may cost money per use. Recommended for complex "
             "coding tasks.")
         self._set_status("")

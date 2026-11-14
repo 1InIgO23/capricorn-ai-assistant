@@ -1,8 +1,15 @@
-"""Finds other applications' windows on Windows (safe no-ops elsewhere).
+"""Finds other applications' windows on Windows and macOS (safe no-ops elsewhere).
 
-Win32 reports physical pixels; Qt works in logical (DPI-scaled) pixels. Each
-rectangle is converted using the monitor it is on, so docking also works with
-display scaling and on multi-monitor setups with different scales.
+Windows: Win32 reports physical pixels; Qt works in logical (DPI-scaled)
+pixels. Each rectangle is converted using the monitor it is on, so docking
+also works with display scaling and on multi-monitor setups with different
+scales.
+
+macOS: Quartz (``CGWindowListCopyWindowInfo``) reports window bounds in
+points, with the origin at the top-left corner of the main display. That is
+exactly Qt's global coordinate system on macOS, so no conversion is needed.
+Window titles are only visible to apps with the Screen Recording permission;
+without it the application name is used as the title instead.
 """
 from __future__ import annotations
 
@@ -25,6 +32,12 @@ _WS_EX_TOOLWINDOW = 0x00000080
 _WS_EX_NOACTIVATE = 0x08000000
 _DWMWA_EXTENDED_FRAME_BOUNDS = 9
 _DWMWA_CLOAKED = 14
+
+# macOS: owners of on-screen windows that are part of the system UI, not apps.
+_MAC_IGNORED_OWNERS = {"Window Server", "Dock", "Control Center", "Notification Center",
+                       "SystemUIServer", "Spotlight", "Wallpaper", "WindowManager",
+                       "Screenshot", "TextInputMenuAgent"}
+_MAC_MIN_SIZE = 40  # smaller windows are helpers, status items or invisible panels
 
 if sys.platform == "win32":
     import ctypes
@@ -141,6 +154,91 @@ if sys.platform == "win32":
         return buffer.value
 
 
+if sys.platform == "darwin":
+    try:
+        import Quartz
+    except ImportError:  # pyobjc-framework-Quartz not installed
+        Quartz = None
+        log.warning("pyobjc-framework-Quartz is missing: Capri can't see other windows. "
+                    "Run 'pip install -r requirements.txt'.")
+
+    def _mac_window_list(option: int, window_id: int = 0) -> list:
+        """Raw window dictionaries from Quartz, front to back."""
+        if Quartz is None:
+            return []
+        return list(Quartz.CGWindowListCopyWindowInfo(option, window_id) or [])
+
+    def _mac_on_screen() -> list:
+        """Windows on the current Space (minimized and hidden ones are excluded)."""
+        if Quartz is None:
+            return []
+        return _mac_window_list(Quartz.kCGWindowListOptionOnScreenOnly
+                                | Quartz.kCGWindowListExcludeDesktopElements,
+                                Quartz.kCGNullWindowID)
+
+
+# The Quartz dictionary keys are CFStrings whose values equal their names, so
+# plain strings work and keep the parsing below testable on any platform.
+def _mac_rect(entry) -> Rect | None:
+    """Bounds of a Quartz window dictionary as a :class:`Rect` (Qt coordinates)."""
+    bounds = entry.get("kCGWindowBounds")
+    if not bounds:
+        return None
+    try:
+        return Rect(round(float(bounds["X"])), round(float(bounds["Y"])),
+                    round(float(bounds["Width"])), round(float(bounds["Height"])))
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _mac_parse(entry, own_pid: int) -> tuple[int, str, str, Rect] | None:
+    """``(handle, title, process, rect)`` for a usable app window, else ``None``."""
+    try:
+        if int(entry.get("kCGWindowLayer", -1)) != 0:  # 0 = normal app windows
+            return None
+        if int(entry.get("kCGWindowOwnerPID", -1)) == own_pid:
+            return None
+        if float(entry.get("kCGWindowAlpha", 1.0)) <= 0.01:
+            return None
+        handle = int(entry.get("kCGWindowNumber", 0))
+    except (TypeError, ValueError):
+        return None
+    process = str(entry.get("kCGWindowOwnerName") or "").strip()
+    if not handle or process in _MAC_IGNORED_OWNERS:
+        return None
+    rect = _mac_rect(entry)
+    if rect is None or rect.width < _MAC_MIN_SIZE or rect.height < _MAC_MIN_SIZE:
+        return None
+    # Without the Screen Recording permission the title is missing: fall back
+    # to the application name so the window can still be found and targeted.
+    title = str(entry.get("kCGWindowName") or "").strip() or process
+    if not title:
+        return None
+    return handle, title, process, rect
+
+
+def unavailable_reason() -> str | None:
+    """Why other windows can't be detected on this machine, or ``None`` if they can."""
+    if sys.platform == "win32":
+        return None
+    if sys.platform == "darwin":
+        if Quartz is None:
+            return ("the pyobjc-framework-Quartz package is missing "
+                    "(pip install -r requirements.txt)")
+        return None
+    return "window detection only works on Windows and macOS"
+
+
+def titles_hidden() -> bool:
+    """True on macOS when window titles are hidden for lack of Screen Recording access."""
+    if sys.platform != "darwin" or Quartz is None:
+        return False
+    try:
+        return not bool(Quartz.CGPreflightScreenCaptureAccess())
+    except Exception:  # very old macOS without the API: titles are always visible there
+        return False
+
+
 @dataclass(frozen=True)
 class WindowInfo:
     """Title and program of an open window (no geometry, no Qt: safe in any thread)."""
@@ -152,6 +250,14 @@ class WindowInfo:
 
 def enumerate_titles() -> list[WindowInfo]:
     """Open windows of other applications, topmost first. Thread-safe (no Qt calls)."""
+    if sys.platform == "darwin":
+        try:
+            own_pid = os.getpid()
+            parsed = (_mac_parse(entry, own_pid) for entry in _mac_on_screen())
+            return [WindowInfo(p[0], p[1], p[2]) for p in parsed if p is not None]
+        except Exception:
+            log.debug("Window title enumeration failed", exc_info=True)
+            return []
     if sys.platform != "win32":
         return []
     found: list[WindowInfo] = []
@@ -211,6 +317,14 @@ def match_window(query: str, windows: list[WindowInfo]) -> WindowInfo | None:
 
 def list_windows() -> list[AppWindow]:
     """Visible top-level windows of other applications, topmost first."""
+    if sys.platform == "darwin":
+        try:
+            own_pid = os.getpid()
+            parsed = (_mac_parse(entry, own_pid) for entry in _mac_on_screen())
+            return [AppWindow(p[0], p[1], p[3]) for p in parsed if p is not None]
+        except Exception:  # detection is a nice-to-have; never break Capri over it
+            log.debug("Window enumeration failed", exc_info=True)
+            return []
     if sys.platform != "win32":
         return []
     found: list[AppWindow] = []
@@ -234,6 +348,21 @@ def list_windows() -> list[AppWindow]:
 
 def window_rect(handle: int) -> Rect | None:
     """Current frame of a window, or ``None`` once it is closed, minimized or hidden."""
+    if sys.platform == "darwin" and handle:
+        try:
+            if Quartz is None:
+                return None
+            entries = _mac_window_list(Quartz.kCGWindowListOptionIncludingWindow, int(handle))
+            entry = next((e for e in entries
+                          if int(e.get("kCGWindowNumber", 0)) == int(handle)), None)
+            # Minimized windows, hidden apps and windows on another Space are
+            # reported as not on screen.
+            if entry is None or not entry.get("kCGWindowIsOnscreen"):
+                return None
+            return _mac_rect(entry)
+        except Exception:
+            log.debug("window_rect failed", exc_info=True)
+            return None
     if sys.platform != "win32" or not handle:
         return None
     try:

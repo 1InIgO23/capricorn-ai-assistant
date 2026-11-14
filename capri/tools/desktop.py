@@ -3,10 +3,15 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..character.app_windows import enumerate_titles, match_window
+from ..character.app_windows import (enumerate_titles, match_window, titles_hidden,
+                                     unavailable_reason)
 from .base import Tool, ToolContext, ToolResult, obj
 
 MAX_LISTED = 25
+TITLES_HIDDEN_NOTE = ("Note: macOS is hiding the window titles, so only app names are shown. "
+                      "To see titles, the user can allow the app Capri was started from "
+                      "(e.g. Terminal) in System Settings → Privacy & Security → Screen & "
+                      "System Audio Recording, then restart Capri.")
 
 
 def _listing(windows) -> str:
@@ -18,13 +23,18 @@ def _listing(windows) -> str:
 
 
 def list_open_windows(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+    reason = unavailable_reason()
+    if reason:
+        return ToolResult(True, f"I can't see other windows on this computer: {reason}.",
+                          "unavailable")
     windows = enumerate_titles()
     if not windows:
         return ToolResult(True, "I can't see any open application windows (minimized windows "
-                                "are not counted, and this only works on Windows).",
+                                "and windows on other desktops are not counted).",
                           "none found")
     body = _listing(windows)
-    return ToolResult(True, f"Open windows (topmost first):\n{body}",
+    note = f"\n{TITLES_HIDDEN_NOTE}" if titles_hidden() else ""
+    return ToolResult(True, f"Open windows (topmost first):\n{body}{note}",
                       f"{len(windows)} windows", details=body)
 
 
@@ -32,6 +42,10 @@ def point_at_window(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     query = str(args.get("window") or "").strip()
     if not query:
         raise ValueError("Say which window to point at (part of its title or the program).")
+    reason = unavailable_reason()
+    if reason:
+        return ToolResult(True, f"I can't see other windows on this computer: {reason}.",
+                          "unavailable")
     windows = enumerate_titles()
     if not windows:
         return ToolResult(True, "There are no visible application windows to point at "

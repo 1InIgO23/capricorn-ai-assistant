@@ -9,6 +9,9 @@ Three levels of protection:
 * **protected folders** - the folder itself may not be moved, renamed or
   deleted, but its contents may be changed (drive roots, the user profile,
   Desktop, Documents...).
+
+System folders differ per platform: ``C:\\Windows``, ``Program Files``... on
+Windows; ``/System``, ``/Library``, ``/Applications``, ``/usr``... on macOS.
 """
 from __future__ import annotations
 
@@ -27,7 +30,13 @@ def normalize(path: str | os.PathLike[str]) -> str:
     text = os.fspath(path)
     if text.startswith("\\\\?\\"):
         text = text[4:]
-    return os.path.normcase(os.path.realpath(os.path.abspath(text)))
+    result = os.path.normcase(os.path.realpath(os.path.abspath(text)))
+    if sys.platform == "darwin":
+        # macOS volumes are case-insensitive by default, but normcase() does
+        # nothing on POSIX: without this, "/system/library" would slip past a
+        # rule for "/System". Lower-casing can only make the checks stricter.
+        result = result.lower()
+    return result
 
 
 def is_inside(child: str, root: str) -> bool:
@@ -103,16 +112,41 @@ def _posix_system_roots() -> list[str]:
             "/usr", "/var", "/System", "/Library", "/Applications"]
 
 
+def _mac_system_roots() -> list[str]:
+    # /etc and /var are symlinks into /private on macOS; realpath() resolves
+    # them, but the real locations are listed too to make the intent explicit.
+    return _posix_system_roots() + ["/private/etc", "/private/var", "/cores", "/Network",
+                                    "/Volumes/Recovery"]
+
+
+def _system_roots() -> list[str]:
+    if sys.platform == "win32":
+        return _windows_system_roots()
+    if sys.platform == "darwin":
+        return _mac_system_roots()
+    return _posix_system_roots()
+
+
+def _protected_names() -> tuple[str, ...]:
+    """Folders in the home folder that may be worked in but not moved or deleted."""
+    common = ("Desktop", "Documents", "Downloads", "Pictures", "Music")
+    if sys.platform == "win32":
+        return common + ("Videos", "AppData", "OneDrive")
+    if sys.platform == "darwin":
+        return common + ("Movies", "Public", "Library", "Applications",
+                         "Library/Mobile Documents")  # iCloud Drive
+    return common + ("Videos",)
+
+
 def default_policy(extra_forbidden: list[str | os.PathLike[str]] | None = None,
                    readonly: list[str | os.PathLike[str]] | None = None) -> SafetyPolicy:
     """The policy used by the app on this machine."""
-    forbidden = _windows_system_roots() if sys.platform == "win32" else _posix_system_roots()
+    forbidden = _system_roots()
     forbidden += [os.fspath(p) for p in (extra_forbidden or [])]
-    home = Path(os.environ.get("USERPROFILE") or Path.home())
+    home = Path((os.environ.get("USERPROFILE") if sys.platform == "win32" else None)
+                or Path.home())
     protected = [home, home.parent]
-    protected += [home / name for name in
-                  ("Desktop", "Documents", "Downloads", "Pictures", "Music", "Videos",
-                   "AppData", "OneDrive")]
+    protected += [home / name for name in _protected_names()]
     return SafetyPolicy(
         forbidden_roots=forbidden,
         readonly_roots=[os.fspath(p) for p in (readonly or [])],

@@ -5,6 +5,7 @@ import html
 import re
 
 from ..config.theme import Theme
+from ..osutil import font_pt
 from .style import css_fonts
 
 _CODE_SPAN = re.compile(r"`([^`\n]+)`")
@@ -159,7 +160,8 @@ _LANG_ALIASES = {"batch": "bat", "cmd": "bat", "ps1": "powershell", "py": "pytho
 
 def highlight_code(code: str, language: str, theme: Theme) -> str:
     """Syntax-highlighted HTML (a ``<pre>`` block) for *code*."""
-    font = (f"font-family:{css_fonts(theme, 'mono')}; font-size:{theme.font_size('mono_size')}pt; "
+    font = (f"font-family:{css_fonts(theme, 'mono')}; "
+            f"font-size:{font_pt(theme.font_size('mono_size'))}pt; "
             f"color:{theme.syntax('text')}; margin:0;")
     body = html.escape(code)
     try:

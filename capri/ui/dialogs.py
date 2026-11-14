@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QFileDialog, QForm
 
 from ..config.settings import EFFECT_LEVELS, Settings
 from ..config.theme import Theme
+from ..osutil import IS_MAC
 from ..tools.base import ConfirmRequest
 from .markdown import highlight_code
 from .style import blend, css_fonts, paint_glass, pulse, qcolor
@@ -238,6 +239,12 @@ class SettingsDialog(QDialog):
         form.addRow("Float about every", self._roam_gap)
         form.addRow("", self._remarks)
         form.addRow("At most one remark every", self._remark_gap)
+        if IS_MAC:  # the Dock only exists on macOS
+            self._dock_icon = QCheckBox("Show Capri in the Dock")
+            self._dock_icon.setToolTip("When off, Capri only appears on the desktop and in the "
+                                       "menu bar.")
+            self._dock_icon.setChecked(bool(self._settings.get("show_dock_icon", False)))
+            form.addRow("", self._dock_icon)
         return page
 
     def _tools_tab(self) -> QWidget:
@@ -280,6 +287,8 @@ class SettingsDialog(QDialog):
         s.set("roam_interval_minutes", self._roam_gap.value())
         s.set("remarks_enabled", self._remarks.isChecked())
         s.set("remarks_interval_minutes", self._remark_gap.value())
+        if IS_MAC:
+            s.set("show_dock_icon", self._dock_icon.isChecked())
         s.set("workspace", self._workspace.text().strip())
         s.set("script_timeout", self._timeout.value())
         s.save()
