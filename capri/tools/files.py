@@ -2,7 +2,7 @@
 
 Read-only operations run immediately. Anything that writes, moves, renames or
 deletes first asks the user through a confirmation dialog that states exactly
-what will happen. Deleting always goes to the Recycle Bin.
+what will happen. Deleting always goes to the Recycle Bin (the Trash on macOS).
 """
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from ..osutil import machine_word, trash_name
 from .base import ConfirmRequest, Tool, ToolContext, ToolResult, obj
 from .safety import SafetyError
 
@@ -23,7 +24,27 @@ MAX_READ_CHARS = 12_000
 MAX_WALK = 60_000
 EXECUTABLE_EXTENSIONS = {".exe", ".bat", ".cmd", ".com", ".msi", ".ps1", ".vbs", ".vbe", ".js",
                          ".jse", ".wsf", ".scr", ".lnk", ".reg", ".py", ".pyw", ".hta", ".cpl",
-                         ".jar", ".msc"}
+                         ".jar", ".msc",
+                         # macOS / Unix: app bundles, installers, shell and Apple scripts
+                         ".app", ".command", ".sh", ".zsh", ".bash", ".pkg", ".mpkg", ".dmg",
+                         ".scpt", ".scptd", ".applescript", ".workflow", ".terminal", ".tool"}
+
+
+# Wording for the delete confirmation and the status line under Capri.
+_TRASH_VERB = "Trash" if sys.platform == "darwin" else "Recycle"
+_TRASH_HUD = "TRASHING" if sys.platform == "darwin" else "RECYCLING"
+
+
+def can_run_code(path: Path) -> bool:
+    """True if opening *path* with its default app could run code.
+
+    Checks the extension (also for folders: ``.app`` and ``.workflow`` bundles
+    are folders on macOS) and, outside Windows, the executable permission bit,
+    because Finder runs extension-less executables in Terminal.
+    """
+    if path.suffix.lower() in EXECUTABLE_EXTENSIONS:
+        return True
+    return sys.platform != "win32" and path.is_file() and os.access(path, os.X_OK)
 
 
 def resolve_path(raw: Any, context: ToolContext) -> Path:
@@ -163,10 +184,10 @@ def open_path(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     ctx.policy.check_read(path)
     if not path.exists():
         raise ValueError(f"Not found: {path}")
-    if path.is_file() and path.suffix.lower() in EXECUTABLE_EXTENSIONS:
+    if can_run_code(path):
         request = ConfirmRequest(
             title="Open a program or script",
-            summary="Capri wants to open a file that can run code on this PC.",
+            summary=f"Capri wants to open a file that can run code on this {machine_word()}.",
             details=[f"Open with its default app: {path}"])
         if not ctx.confirm(request):
             return _denied()
@@ -320,16 +341,16 @@ def delete_path(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
         raise SafetyError("The 'send2trash' package is missing, and I never delete "
                           "permanently. Install the requirements first.") from exc
     request = ConfirmRequest(
-        title="Send to Recycle Bin",
-        summary=f"Capri wants to send {len(paths)} item(s) to the Recycle Bin.",
-        details=[f"Recycle: {p}" + ("  (folder and everything in it)" if p.is_dir() else "")
+        title=f"Send to {trash_name()}",
+        summary=f"Capri wants to send {len(paths)} item(s) to the {trash_name()}.",
+        details=[f"{_TRASH_VERB}: {p}" + ("  (folder and everything in it)" if p.is_dir() else "")
                  for p in paths])
     if not ctx.confirm(request):
         return _denied()
     for path in paths:
         send2trash(str(path))
     lines = "\n".join(f"- `{p}`" for p in paths)
-    return ToolResult(True, "Sent to the Recycle Bin:\n" + "\n".join(map(str, paths)),
+    return ToolResult(True, f"Sent to the {trash_name()}:\n" + "\n".join(map(str, paths)),
                       f"recycled {len(paths)} item(s)", details=lines)
 
 
@@ -367,7 +388,9 @@ def _first(*keys: str):
 
 
 _PATH = {"type": "string", "description": "File or folder path. Relative paths are inside the "
-                                          "workspace; ~ and %VARS% are expanded."}
+                                          "workspace; ~ and "
+                                          + ("%VARS%" if sys.platform == "win32" else "$VARS")
+                                          + " are expanded."}
 _PATHS = {"type": "array", "items": {"type": "string"}, "description": "One or more paths."}
 
 
@@ -389,7 +412,7 @@ def file_tools() -> list[Tool]:
         Tool("read_file", "read file", "Read a text or PDF file and return its content.",
              obj({"path": _PATH, "max_chars": {"type": "integer"}}, ["path"]),
              read_file, "files", "files", lambda a: f"READING {_name(a)}", _first("path")),
-        Tool("open_path", "open", "Open a file or folder with its default Windows app.",
+        Tool("open_path", "open", "Open a file or folder with its default app.",
              obj({"path": _PATH}, ["path"]), open_path, "files", "files",
              lambda a: f"OPENING {_name(a)}", _first("path")),
         Tool("write_file", "write file",
@@ -418,8 +441,8 @@ def file_tools() -> list[Tool]:
              obj({"path": _PATH, "new_name": {"type": "string"}}, ["path", "new_name"]),
              rename_path, "files", "files", lambda a: f"RENAMING {_name(a)}", _first("path")),
         Tool("delete_path", "recycle",
-             "Send files or folders to the Recycle Bin (asks the user to confirm). "
+             f"Send files or folders to the {trash_name()} (asks the user to confirm). "
              "Nothing is ever deleted permanently.",
              obj({"paths": _PATHS}, ["paths"]), delete_path, "files", "files",
-             _count_hud("RECYCLING", "paths", "path"), _first("paths", "path")),
+             _count_hud(_TRASH_HUD, "paths", "path"), _first("paths", "path")),
     ]

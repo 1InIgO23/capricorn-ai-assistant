@@ -43,16 +43,22 @@
   "fonts": {
     "ui": [
       "Segoe UI",
+      "Helvetica Neue",
       "Arial"
     ],
     "display": [
       "Bahnschrift",
+      "DIN Alternate",
+      "Avenir Next Condensed",
       "Segoe UI",
+      "Helvetica Neue",
       "Arial"
     ],
     "mono": [
       "Cascadia Mono",
       "Consolas",
+      "SF Mono",
+      "Menlo",
       "Courier New"
     ],
     "ui_size": 10,

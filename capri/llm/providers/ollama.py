@@ -9,6 +9,7 @@ import requests
 
 from ..base import (BackendError, LLMBackend, Message, StreamEvent, ToolCall, ToolSpec,
                     ToolsNotSupported, register_backend)
+from ...osutil import machine_word
 from ._http import error_text, get_json, post_stream
 
 
@@ -22,8 +23,8 @@ class OllamaBackend(LLMBackend):
     default_model = "qwen2.5:7b"
     needs_api_key = False
     is_local = True
-    help_text = ("Runs on your own PC. Fine for chatting, web lookups, file chores and simple "
-                 "scripts. Pick a model that supports tool calling.")
+    help_text = (f"Runs on your own {machine_word()}. Fine for chatting, web lookups, file chores "
+                 "and simple scripts. Pick a model that supports tool calling.")
 
     @staticmethod
     def _convert(message: Message) -> dict[str, Any]:

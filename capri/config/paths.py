@@ -13,7 +13,10 @@ APP_NAME = "Capri"
 
 
 def app_data_dir() -> Path:
-    """Return (and create) the per-user data folder, e.g. ``%APPDATA%\\Capri``.
+    """Return (and create) the per-user data folder.
+
+    ``%APPDATA%\\Capri`` on Windows, ``~/Library/Application Support/Capri``
+    on macOS and ``~/.config/Capri`` elsewhere.
 
     The ``CAPRI_HOME`` environment variable overrides the location, which is
     handy for tests and for running a second, isolated profile.
@@ -23,6 +26,8 @@ def app_data_dir() -> Path:
         base = Path(override)
     elif sys.platform == "win32":
         base = Path(os.environ.get("APPDATA") or (Path.home() / "AppData" / "Roaming")) / APP_NAME
+    elif sys.platform == "darwin":
+        base = Path.home() / "Library" / "Application Support" / APP_NAME
     else:
         base = Path(os.environ.get("XDG_CONFIG_HOME") or (Path.home() / ".config")) / APP_NAME
     base.mkdir(parents=True, exist_ok=True)
@@ -74,6 +79,6 @@ def theme_file() -> Path:
 
 
 def default_workspace() -> Path:
-    """Default folder for scripts written by Capri."""
-    home = os.environ.get("USERPROFILE") or str(Path.home())
+    """Default folder for scripts written by Capri (``~/CapriWorkspace``)."""
+    home = (os.environ.get("USERPROFILE") if sys.platform == "win32" else None) or str(Path.home())
     return Path(home) / "CapriWorkspace"

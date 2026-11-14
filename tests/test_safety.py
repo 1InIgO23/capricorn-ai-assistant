@@ -121,7 +121,8 @@ def test_delete_goes_to_recycle_bin_only_after_confirmation(sandbox, monkeypatch
     confirm.answer = True
     assert files.delete_path({"paths": ["old.txt"]}, ctx).ok
     assert trashed == [str(victim)]
-    assert "Recycle" in asked[-1].details[0]
+    # "Recycle: ..." on Windows, "Trash: ..." on macOS
+    assert asked[-1].details[0].split(":")[0] in ("Recycle", "Trash")
 
 
 def test_scripts_stay_in_workspace_and_need_confirmation(sandbox) -> None:
@@ -169,3 +170,20 @@ def test_default_policy_blocks_windows_system_folders() -> None:
         assert policy.is_forbidden(path), path
     with pytest.raises(SafetyError):
         policy.check_modify("C:\\")
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="macOS system folders")
+def test_default_policy_blocks_macos_system_folders() -> None:
+    policy = default_policy()
+    for path in ("/System/Library/CoreServices", "/system/library/x",  # case-insensitive disk
+                 "/Library/Preferences/x.plist", "/Applications/Safari.app",
+                 "/usr/bin/python3", "/etc/hosts", "/private/etc/hosts", "/bin/zsh",
+                 "/Users/../System/x"):
+        assert policy.is_forbidden(path), path
+    home = Path.home()
+    for folder in (home, home / "Library", home / "Movies", home / "Desktop"):
+        with pytest.raises(SafetyError):
+            policy.check_modify(folder)
+    assert not policy.is_forbidden(home / "Library" / "notes.txt")
+    with pytest.raises(SafetyError):
+        policy.check_modify("/")

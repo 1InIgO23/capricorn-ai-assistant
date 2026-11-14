@@ -30,6 +30,8 @@ DEFAULTS: dict[str, Any] = {
     "remarks_enabled": True,
     "remarks_interval_minutes": 20,
     "max_tool_rounds": 12,
+    # macOS only: show Capri in the Dock (otherwise she lives in the menu bar).
+    "show_dock_icon": False,
     "window": {"x": None, "y": None, "dock": None},
     "last_conversation": "",
 }

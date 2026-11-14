@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QPushButton, QSizePo
 
 from ..config.theme import Theme
 from .markdown import highlight_code, md_to_html, split_segments
+from ..osutil import font_pt
 from .style import css_fonts
 
 _GLYPHS = "01#$%&=+?/\\<>▚▞▓░"
@@ -110,7 +111,7 @@ class CodeBlock(QFrame):
         self._label = QLabel("code")
         self._label.setStyleSheet(
             f"color: {theme.color('text_dim')}; font-family: {css_fonts(theme, 'mono')}; "
-            f"font-size: {max(7, theme.font_size('mono_size') - 2)}pt;")
+            f"font-size: {font_pt(max(7, theme.font_size('mono_size') - 2))}pt;")
         self._copy = QPushButton("COPY")
         self._copy.setObjectName("flat")
         self._copy.setCursor(Qt.PointingHandCursor)
@@ -166,7 +167,7 @@ class MessageWidget(QFrame):
         tag = QLabel(names.get(role, role.upper()))
         tag.setStyleSheet(
             f"color: {accent}; font-family: {css_fonts(theme, 'display')}; "
-            f"font-size: {max(7, theme.font_size('ui_size') - 3)}pt; font-weight: bold; "
+            f"font-size: {font_pt(max(7, theme.font_size('ui_size') - 3))}pt; font-weight: bold; "
             "letter-spacing: 1px;")
         self._layout.addWidget(tag)
 
@@ -273,7 +274,7 @@ class ToolEntry(QFrame):
             f"QPushButton {{ text-align: left; background: transparent; border: none; "
             f"padding: 2px 4px; color: {self._color}; "
             f"font-family: {css_fonts(self._theme, 'mono')}; "
-            f"font-size: {max(7, self._theme.font_size('mono_size') - 1)}pt; }}"
+            f"font-size: {font_pt(max(7, self._theme.font_size('mono_size') - 1))}pt; }}"
             f"QPushButton:hover {{ color: {self._theme.color('secondary')}; }}")
         self._button.ensurePolished()
         self._button._elide()
